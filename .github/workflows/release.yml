@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build release artifacts
+    runs-on: ubuntu-latest
+    env:
+      YANDEX_EXTENSION_ID: cjhpodjghfokdfoljmfbgibjjfpafdip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --build --force
+
+      - name: Test
+        run: npx vitest run
+
+      - name: Build Chrome artifact
+        run: npm run release:chrome
+
+      - name: Prepare Yandex signing key
+        env:
+          YANDEX_CRX_PRIVATE_KEY_B64: ${{ secrets.YANDEX_CRX_PRIVATE_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$YANDEX_CRX_PRIVATE_KEY_B64"
+          key_path="$RUNNER_TEMP/yandex.pem"
+          printf '%s' "$YANDEX_CRX_PRIVATE_KEY_B64" | base64 --decode > "$key_path"
+          chmod 600 "$key_path"
+          echo "YANDEX_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+
+      - name: Build Yandex artifact
+        run: npm run release:yandex
+
+      - name: Generate checksums
+        run: npm run checksums
+
+      - name: Verify release artifacts
+        run: |
+          set -euo pipefail
+          test -s release/confx-chrome.zip
+          test -s release/confx-yandex.crx
+          test -s release/SHA256SUMS
+          python3 - <<'PY'
+          import zipfile
+
+          with zipfile.ZipFile('release/confx-chrome.zip') as archive:
+              names = set(archive.namelist())
+
+          if 'manifest.json' not in names:
+              raise SystemExit('release/confx-chrome.zip must contain manifest.json at archive root')
+          PY
+
+      - name: Remove temporary signing key
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${YANDEX_KEY_PATH:-}" ] && [ -f "$YANDEX_KEY_PATH" ]; then
+            rm -f "$YANDEX_KEY_PATH"
+          fi
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: confx-release-artifacts
+          path: |
+            release/confx-chrome.zip
+            release/confx-yandex.crx
+            release/SHA256SUMS
+          if-no-files-found: error
+
+      - name: Publish GitHub Release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "$tag" --notes "ConfX release $tag"
+          gh release upload "$tag" \
+            release/confx-chrome.zip \
+            release/confx-yandex.crx \
+            release/SHA256SUMS \
+            --clobber

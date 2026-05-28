@@ -1,0 +1,108 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root,
+  html.light {
+    --background: 240 27% 98%;
+    --foreground: 240 28% 14%;
+    --muted: 240 20% 95%;
+    --muted-foreground: 240 9% 46%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 28% 14%;
+    --surface: 0 0% 100%;
+    --surface-hover: 240 20% 95%;
+    --primary: 247 75% 63%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 20% 95%;
+    --secondary-foreground: 240 28% 14%;
+    --accent: 240 20% 95%;
+    --accent-foreground: 240 28% 14%;
+    --accent-glow: 247 75% 63% / 0.2;
+    --success: 166 100% 41%;
+    --warning: 41 87% 55%;
+    --destructive: 355 100% 64%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 15% 89%;
+    --input: 240 15% 89%;
+    --ring: 247 75% 63%;
+    --radius: 0.75rem;
+    --sidebar-min-width: 350px;
+    --popup-size: 600px;
+    --app-min-width: var(--sidebar-min-width);
+    --app-min-height: var(--popup-size);
+  }
+
+  html.dark {
+    --background: 240 20% 5%;
+    --foreground: 240 20% 91%;
+    --muted: 240 21% 13%;
+    --muted-foreground: 240 9% 46%;
+    --card: 240 18% 9%;
+    --card-foreground: 240 20% 91%;
+    --surface: 240 18% 9%;
+    --surface-hover: 240 21% 13%;
+    --primary: 247 75% 63%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 21% 13%;
+    --secondary-foreground: 240 20% 91%;
+    --accent: 240 21% 13%;
+    --accent-foreground: 240 20% 91%;
+    --accent-glow: 247 75% 63% / 0.2;
+    --success: 166 100% 41%;
+    --warning: 41 87% 55%;
+    --destructive: 355 100% 64%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 16% 20%;
+    --input: 240 16% 20%;
+    --ring: 247 75% 63%;
+    --radius: 0.75rem;
+  }
+
+  html {
+    font-size: var(--base-font-size, 14px);
+  }
+
+  html {
+    min-width: var(--app-min-width);
+    min-height: var(--app-min-height);
+    height: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  body {
+    width: 100%;
+    min-width: inherit;
+    min-height: inherit;
+    height: 100%;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    margin: 0;
+  }
+
+  #root {
+    min-width: var(--app-min-width);
+    min-height: var(--app-min-height);
+    height: 100%;
+  }
+
+  body[data-target="yandex"] {
+    width: var(--popup-size);
+    min-width: var(--popup-size);
+    max-width: var(--popup-size);
+    height: var(--popup-size);
+    min-height: var(--popup-size);
+    max-height: var(--popup-size);
+  }
+
+  body[data-target="yandex"] #root {
+    width: var(--popup-size);
+    height: var(--popup-size);
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}

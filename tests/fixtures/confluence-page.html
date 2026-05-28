@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Menu Component - Test Space - МосВики</title>
+  <meta name="ajs-page-id" content="123456">
+  <meta name="ajs-space-key" content="TEST">
+  <meta name="ajs-base-url" content="https://wiki.example.com">
+</head>
+<body>
+  <div id="main-content">
+    <!-- Empty paragraph with nbsp only — should be stripped by preprocessConfluenceNoise -->
+    <p>&nbsp;</p>
+
+    <!-- JSON config noise — should be stripped -->
+    <p>{"enableNumbering":true}</p>
+
+    <!-- Heading with anchor link noise -->
+    <h1 id="MenuComponent-ТестоваястраницакомпонентаMenu">
+      Компонент Menu
+      <a class="confluence-anchor-link" href="#MenuComponent-ТестоваястраницакомпонентаMenu">#</a>
+    </h1>
+
+    <p>Описание компонента меню для UI-кит.</p>
+
+    <!-- Standard Confluence table with tablesorter markup -->
+    <h2 id="APIкомпонента">API компонента</h2>
+    <div class="table-wrap">
+      <table class="confluenceTable tablesorter tablesorter-default">
+        <thead>
+          <tr class="tablesorter-headerRow">
+            <th class="confluenceTh tablesorter-header">
+              <div class="tablesorter-header-inner">Свойство</div>
+            </th>
+            <th class="confluenceTh tablesorter-header">
+              <div class="tablesorter-header-inner">Тип</div>
+            </th>
+            <th class="confluenceTh tablesorter-header">
+              <div class="tablesorter-header-inner">По умолчанию</div>
+            </th>
+            <th class="confluenceTh tablesorter-header">
+              <div class="tablesorter-header-inner">Описание</div>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="confluenceTd"><code>items</code></td>
+            <td class="confluenceTd"><code>MenuItem[]</code></td>
+            <td class="confluenceTd"><code>[]</code></td>
+            <td class="confluenceTd">Массив элементов меню</td>
+          </tr>
+          <tr>
+            <td class="confluenceTd"><code>mode</code></td>
+            <td class="confluenceTd"><code>'vertical' | 'horizontal'</code></td>
+            <td class="confluenceTd"><code>'vertical'</code></td>
+            <td class="confluenceTd">Режим отображения</td>
+          </tr>
+          <tr>
+            <td class="confluenceTd"><code>onClick</code></td>
+            <td class="confluenceTd"><code>(item: MenuItem) =&gt; void</code></td>
+            <td class="confluenceTd">—</td>
+            <td class="confluenceTd">Обработчик клика</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Table with rowspan -->
+    <h2 id="Цветоваясхема">Цветовая схема</h2>
+    <div class="table-wrap">
+      <table class="confluenceTable">
+        <thead>
+          <tr>
+            <th class="confluenceTh">Состояние</th>
+            <th class="confluenceTh">Фон</th>
+            <th class="confluenceTh">Текст</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="confluenceTd" rowspan="2">Default</td>
+            <td class="confluenceTd">#FFFFFF</td>
+            <td class="confluenceTd">#333333</td>
+          </tr>
+          <tr>
+            <td class="confluenceTd">#F5F5F5</td>
+            <td class="confluenceTd">#666666</td>
+          </tr>
+          <tr>
+            <td class="confluenceTd">Hover</td>
+            <td class="confluenceTd">#E8F4FD</td>
+            <td class="confluenceTd">#0066CC</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Table with colspan -->
+    <h2 id="Колспан">Таблица с colspan</h2>
+    <table class="confluenceTable">
+      <tbody>
+        <tr>
+          <th class="confluenceTh" colspan="2">Заголовок 1 и 2</th>
+          <th class="confluenceTh">Столбец 3</th>
+        </tr>
+        <tr>
+          <td class="confluenceTd">A</td>
+          <td class="confluenceTd">B</td>
+          <td class="confluenceTd">C</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Info macro (callout) -->
+    <div class="confluence-information-macro confluence-information-macro-information">
+      <p>Это информационная заметка. Дополнительные сведения доступны в документации.</p>
+    </div>
+
+    <!-- Warning macro -->
+    <div class="confluence-information-macro confluence-information-macro-warning">
+      <p>Не используйте этот компонент в продакшене без тестирования.</p>
+    </div>
+
+    <!-- Note macro -->
+    <div class="confluence-information-macro confluence-information-macro-note">
+      <p>Обратите внимание на требования к браузеру.</p>
+    </div>
+
+    <!-- Tip macro -->
+    <div class="confluence-information-macro confluence-information-macro-tip">
+      <p>Используйте сочетание клавиш Ctrl+M для быстрого вызова.</p>
+    </div>
+
+    <!-- Expand/spoiler -->
+    <div class="expand-container">
+      <div class="expand-control">Дополнительные примеры</div>
+      <div class="expand-content">
+        <p>Скрытый контент спойлера с <strong>форматированием</strong>.</p>
+        <ul>
+          <li>Пункт 1</li>
+          <li>Пункт 2</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Images -->
+    <h2 id="Примеры">Примеры</h2>
+    <p>
+      <img src="/wiki/download/attachments/123456/menu-horizontal.png?version=1&amp;modificationDate=1700000000000&amp;api=v2"
+           data-image-src="/wiki/download/attachments/123456/menu-horizontal.png?version=1&amp;modificationDate=1700000000000&amp;api=v2"
+           data-linked-resource-default-alias="menu-horizontal.png"
+           alt="Горизонтальное меню" />
+    </p>
+    <p>
+      <img src="/wiki/download/attachments/123456/menu-vertical.png?api=v2"
+           data-image-src="/wiki/download/attachments/123456/menu-vertical.png?api=v2"
+           alt="Вертикальное меню" />
+    </p>
+
+    <!-- Internal Confluence link -->
+    <p>
+      <a href="https://wiki.example.com/pages/viewpage.action?pageId=789012">Связанная страница</a>
+    </p>
+
+    <!-- External link -->
+    <p>
+      <a href="https://react.dev/">React документация</a>
+    </p>
+
+    <!-- Code block -->
+    <pre><code>&lt;Menu items={items} mode="horizontal" /&gt;</code></pre>
+
+    <!-- Unordered list -->
+    <ul>
+      <li>Первый элемент</li>
+      <li>Второй элемент
+        <ul>
+          <li>Вложенный элемент</li>
+        </ul>
+      </li>
+    </ul>
+
+    <!-- Ordered list -->
+    <ol>
+      <li>Шаг 1</li>
+      <li>Шаг 2</li>
+    </ol>
+
+    <!-- TOC macro (should be removed) -->
+    <div class="toc-macro">
+      <ul>
+        <li><a href="#APIкомпонента">API компонента</a></li>
+      </ul>
+    </div>
+
+    <!-- Heading with "Когда и как применять" section for section rules -->
+    <h2 id="Когдаип какприменять">Когда и как применять</h2>
+    <p>Используйте этот компонент для навигации внутри приложения.</p>
+    <div class="table-wrap">
+      <table class="confluenceTable">
+        <tbody>
+          <tr>
+            <th class="confluenceTh">Сценарий</th>
+            <th class="confluenceTh">Рекомендация</th>
+          </tr>
+          <tr>
+            <td class="confluenceTd">Главное меню</td>
+            <td class="confluenceTd">Используйте horizontal mode</td>
+          </tr>
+          <tr>
+            <td class="confluenceTd">Боковое меню</td>
+            <td class="confluenceTd">Используйте vertical mode</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Empty paragraph with only a <br> -->
+    <p><br/></p>
+
+    <!-- Auto cursor target noise -->
+    <p class="auto-cursor-target"></p>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,175 @@
+import { strFromU8, unzipSync } from "fflate";
+import { describe, expect, it } from "vitest";
+import { base64ToBlob, blobToBase64, bundleExtractedPages } from "../../src/lib/bundler";
+import type { ExtractedPage } from "../../src/types";
+
+async function extractZip(blob: Blob): Promise<Record<string, Uint8Array>> {
+  const buf = await blob.arrayBuffer();
+  return unzipSync(new Uint8Array(buf));
+}
+
+function readEntry(entries: Record<string, Uint8Array>, path: string): string {
+  const entry = entries[path];
+  if (!entry) throw new Error(`Missing ZIP entry: ${path}`);
+  return strFromU8(entry);
+}
+
+function hasEntry(entries: Record<string, Uint8Array>, path: string): boolean {
+  return path in entries;
+}
+
+function makePage(overrides: Partial<ExtractedPage> = {}): ExtractedPage {
+  return {
+    meta: {
+      id: "123",
+      title: "Test Page",
+      spaceKey: "TEST",
+      baseUrl: "https://wiki.example.com",
+      url: "https://wiki.example.com/pages/viewpage.action?pageId=123",
+    },
+    markdown: "# Test Page\n\nHello world",
+    tables: [],
+    images: [],
+    attachments: [],
+    comments: [],
+    history: [],
+    folder: "test-page",
+    ...overrides,
+  };
+}
+
+describe("bundleExtractedPages", () => {
+  it("creates ZIP with root folder + index.md for a single page", async () => {
+    const pages = [makePage()];
+    const blob = await bundleExtractedPages(pages, { rootName: "export" });
+    const entries = await extractZip(blob);
+
+    expect(hasEntry(entries, "export/test-page/index.md")).toBe(true);
+    expect(readEntry(entries, "export/test-page/index.md")).toBe("# Test Page\n\nHello world");
+  });
+
+  it("includes tables in tables/ subfolder", async () => {
+    const pages = [
+      makePage({
+        tables: [
+          { csv: "a,b\n1,2", name: "data-01.csv", section: "data" },
+          { csv: "x,y\n3,4", name: "info-02.csv", section: "info" },
+        ],
+      }),
+    ];
+    const blob = await bundleExtractedPages(pages, { rootName: "export" });
+    const entries = await extractZip(blob);
+
+    expect(hasEntry(entries, "export/test-page/tables/data-01.csv")).toBe(true);
+    expect(hasEntry(entries, "export/test-page/tables/info-02.csv")).toBe(true);
+    expect(readEntry(entries, "export/test-page/tables/data-01.csv")).toBe("a,b\n1,2");
+  });
+
+  it("includes images and deduplicates by hash", async () => {
+    const imgBlob = new Blob(["fake-png-data"], { type: "image/png" });
+    const pages = [
+      makePage({
+        images: [
+          { sourceUrl: "/img/a.png", zipPath: "images/a.png", blob: imgBlob, hash: "hash-a" },
+          { sourceUrl: "/img/b.png", zipPath: "images/b.png", blob: imgBlob, hash: "hash-b" },
+        ],
+      }),
+      makePage({
+        folder: "other-page",
+        images: [
+          { sourceUrl: "/img/a.png", zipPath: "images/a.png", blob: imgBlob, hash: "hash-a" },
+        ],
+      }),
+    ];
+    const blob = await bundleExtractedPages(pages, { rootName: "export" });
+    const entries = await extractZip(blob);
+
+    expect(hasEntry(entries, "export/test-page/images/a.png")).toBe(true);
+    expect(hasEntry(entries, "export/test-page/images/b.png")).toBe(true);
+    // hash-a dedup: second occurrence skipped
+    const allImageFiles = Object.keys(entries).filter((f) => f.includes("images/"));
+    expect(allImageFiles).toHaveLength(2);
+  });
+
+  it("includes README.md and manifest.json when provided", async () => {
+    const blob = await bundleExtractedPages([], {
+      rootName: "export",
+      readme: "# README",
+      manifestJson: '{"version":1}',
+    });
+    const entries = await extractZip(blob);
+
+    expect(readEntry(entries, "export/README.md")).toBe("# README");
+    expect(readEntry(entries, "export/manifest.json")).toBe('{"version":1}');
+  });
+
+  it("creates a valid empty ZIP for empty pages", async () => {
+    const blob = await bundleExtractedPages([], { rootName: "export" });
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob.type).toBe("application/zip");
+    expect(blob.size).toBeGreaterThan(0);
+  });
+
+  it("produces a valid Blob with application/zip type", async () => {
+    const blob = await bundleExtractedPages([makePage()], { rootName: "export" });
+    expect(blob).toBeInstanceOf(Blob);
+  });
+
+  it("handles multiple pages each in own folder", async () => {
+    const pages = [makePage({ folder: "page-a" }), makePage({ folder: "page-b" })];
+    const blob = await bundleExtractedPages(pages, { rootName: "export" });
+    const entries = await extractZip(blob);
+
+    expect(hasEntry(entries, "export/page-a/index.md")).toBe(true);
+    expect(hasEntry(entries, "export/page-b/index.md")).toBe(true);
+  });
+});
+
+describe("blobToBase64", () => {
+  it("converts a text blob to base64", async () => {
+    const blob = new Blob(["hello"], { type: "text/plain" });
+    const b64 = await blobToBase64(blob);
+    expect(b64).toBe(btoa("hello"));
+  });
+
+  it("handles empty blob", async () => {
+    const blob = new Blob([], { type: "text/plain" });
+    const b64 = await blobToBase64(blob);
+    expect(b64).toBe("");
+  });
+
+  it("round-trips with base64ToBlob", async () => {
+    const original = "Binary \x00\x01\x02 data";
+    const blob = new Blob([original]);
+    const b64 = await blobToBase64(blob);
+    const restored = base64ToBlob(b64);
+    const text = await restored.text();
+    expect(text).toBe(original);
+  });
+});
+
+describe("base64ToBlob", () => {
+  it("decodes base64 to Blob", () => {
+    const b64 = btoa("test data");
+    const blob = base64ToBlob(b64);
+    expect(blob).toBeInstanceOf(Blob);
+  });
+
+  it("uses application/zip as default MIME type", () => {
+    const blob = base64ToBlob(btoa("x"));
+    expect(blob.type).toBe("application/zip");
+  });
+
+  it("respects custom MIME type", () => {
+    const blob = base64ToBlob(btoa("x"), "image/png");
+    expect(blob.type).toBe("image/png");
+  });
+
+  it("round-trips with blobToBase64", async () => {
+    const original = "Hello, World!";
+    const b64 = btoa(original);
+    const blob = base64ToBlob(b64, "text/plain");
+    const text = await blob.text();
+    expect(text).toBe(original);
+  });
+});

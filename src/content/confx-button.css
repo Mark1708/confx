@@ -1,0 +1,52 @@
+.cx-confx-button {
+  position: fixed;
+  top: var(--cx-confx-button-top, 76px);
+  right: 16px;
+  z-index: 2147483646;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  max-width: min(220px, calc(100vw - 32px));
+  padding: 8px 12px;
+  overflow: hidden;
+  font: 700 13px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  color: #ffffff;
+  white-space: nowrap;
+  background: linear-gradient(135deg, #5b5ef4 0%, #7c3aed 100%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  box-shadow: 0 14px 36px rgba(91, 94, 244, 0.28), 0 3px 10px rgba(15, 23, 42, 0.18);
+  cursor: pointer;
+  user-select: none;
+  transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+}
+
+.cx-confx-button:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 16px 42px rgba(91, 94, 244, 0.34), 0 4px 12px rgba(15, 23, 42, 0.2);
+}
+
+.cx-confx-button:active {
+  transform: translateY(1px);
+}
+
+.cx-confx-button svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+
+.cx-confx-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 420px) {
+  .cx-confx-button {
+    right: 10px;
+    max-width: calc(100vw - 20px);
+    padding-inline: 10px;
+  }
+}

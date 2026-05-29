@@ -237,4 +237,4 @@ ConfX is active and maintained as a browser extension release flow. Chrome Web S
 
 ## License
 
-MIT
+[MIT](LICENSE)

@@ -236,4 +236,4 @@ ConfX активно поддерживается как browser extension relea
 
 ## Лицензия
 
-MIT
+[MIT](LICENSE)

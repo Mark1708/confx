@@ -1,6 +1,6 @@
 # ConfX
 
-> Браузерное расширение для выгрузки Confluence и Jira в Markdown, CSV, изображения и ZIP-архивы.
+> Браузерное расширение для выгрузки Confluence и Jira в Markdown, CSV, изображения и ZIP-архивы. Работает через активную browser-сессию -- отдельный API-токен не нужен.
 
 ![Статус](https://img.shields.io/badge/status-active-111827?style=for-the-badge&labelColor=111827&color=5b5ef4)
 ![Manifest](https://img.shields.io/badge/manifest-v3-111827?style=for-the-badge&labelColor=111827&color=5b5ef4)
@@ -16,38 +16,107 @@
 | Host-браузеры | Chrome / Chromium, Яндекс Браузер |
 | Основной стек | Manifest V3, React 18, TypeScript, Vite, CRXJS, Tailwind CSS |
 | Release-артефакты | `confx-chrome.zip`, `confx-yandex.crx`, `SHA256SUMS` |
-| Быстрая проверка | `npm ci && npx tsc --build --force && npx vitest run && npm run release:all` |
-| Уровень проверки | Run-confirmed во время release maintenance, если это указано в release notes |
+| Быстрая проверка | `npm ci && npm run typecheck && npm test && npm run build:chrome` |
+| Полная release-проверка | `npm ci && npm run release:all` (требуется Yandex signing key) |
+
+## Что выгружает ConfX
+
+При экспорте страницы или задачи ConfX создаёт ZIP-архив:
+
+```text
+confluence-page.zip
+  README.md                # навигационный индекс для subtree-экспорта
+  manifest.json            # метаданные источника и экспорта
+  pages/
+    page-title.md          # содержимое страницы или задачи в Markdown
+  tables/
+    section-table.csv      # извлечённые таблицы в CSV
+  images/
+    image-001.png          # inline-изображения, загруженные с хоста
+  attachments/
+    original-file.pdf      # вложения страницы при включённом экспорте
+```
+
+- **Markdown** -- основное содержимое страницы или задачи, конвертированное из Confluence/Jira HTML.
+- **CSV** -- извлечённые таблицы, по одному файлу на таблицу.
+- **Изображения** -- inline-изображения, загруженные с хоста, с дедупликацией при включении.
+- **Вложения** -- вложения страницы до настроенного лимита размера.
+- **manifest.json** -- хост-источник, page ID, заголовок, версия, пространство, метки, метка времени экспорта.
 
 ## Скриншоты
 
-Скриншоты пока не добавлены. Перед публичным релизом стоит подготовить:
-
-- Chrome side panel на ширине 320-360px.
-- Chrome side panel на ширине 480px.
-- Popup fallback в Яндекс Браузере.
-- Страницу Markdown viewer.
+Скриншоты будут добавлены перед публикацией в Chrome Web Store.
 
 ## Возможности
 
 - **Page export**: выгрузка текущей страницы Confluence в Markdown, CSV-таблицы, изображения и manifest.
-- **Space export**: выгрузка пространства Confluence, если текущий контекст страницы это поддерживает.
+- **Space export**: выгрузка всех страниц пространства Confluence, если текущий контекст это поддерживает.
 - **Subtree export**: рекурсивная выгрузка дочерних страниц и генерация навигационного `README.md`.
 - **Picker**: выбор блока на странице, предпросмотр и выгрузка только выбранного блока.
-- **Watch**: сохранение snapshots и просмотр изменений во времени.
-- **Jira support**: извлечение полезного содержимого Jira issue, если текущая вкладка открыта на задаче.
+- **Watch** *(экспериментально)*: сохранение snapshots и просмотр изменений во времени.
+- **Jira support**: извлечение содержимого Jira issue, если текущая вкладка открыта на задаче.
 - **Rule engine**: настройка правил извлечения секций и таблиц под соглашения страниц Confluence.
+
+## Безопасность и конфиденциальность
+
+> ConfX читает содержимое Confluence и Jira через **cookies активной browser-сессии**. Отдельный Confluence или Jira API-токен не нужен.
+>
+> Development-сборки запрашивают **широкий HTTP/HTTPS host access** (`https://*/*`, `http://*/*`). Устанавливайте только доверенные release-артефакты и всегда сверяйте checksum с `SHA256SUMS` из того же GitHub Release.
 
 ## Установка из GitHub Releases
 
-Публикация в Chrome Web Store сейчас намеренно не входит в scope. Для текущего release flow канал распространения — GitHub Releases.
+Публикация в Chrome Web Store сейчас намеренно не входит в scope. GitHub Releases -- канал распространения для текущего release flow.
 
-| Браузер | Артефакт | Установка | Заметки |
-|---|---|---|---|
-| Chrome / Chromium | `confx-chrome.zip` | Распаковать ZIP, затем загрузить папку через `chrome://extensions` | Нужно включить Developer Mode. В корне архива лежит `manifest.json`. |
-| Яндекс Браузер | `confx-yandex.crx` | Перетащить CRX в `browser://tune` | CRX подписан release-ключом ConfX для Яндекс Браузера. |
+### Chrome / Chromium
 
-Всегда скачивайте `SHA256SUMS` из того же релиза и сверяйте checksum перед ручной установкой артефактов.
+1. Скачайте `confx-chrome.zip` и `SHA256SUMS` из того же релиза.
+2. Проверьте checksum: `sha256sum -c SHA256SUMS --ignore-missing`.
+3. Распакуйте `confx-chrome.zip`.
+4. Откройте `chrome://extensions`.
+5. Включите **Developer Mode** (переключатель в правом верхнем углу).
+6. Нажмите **Load unpacked**.
+7. Выберите распакованную папку, в корне которой лежит `manifest.json`.
+
+### Яндекс Браузер
+
+1. Скачайте `confx-yandex.crx` и `SHA256SUMS` из того же релиза.
+2. Проверьте checksum: `sha256sum -c SHA256SUMS --ignore-missing`.
+3. Откройте `browser://tune`.
+4. Перетащите `confx-yandex.crx` в окно браузера.
+
+## Использование
+
+### Выгрузка страницы Confluence
+
+1. Откройте страницу Confluence в браузере.
+2. Откройте side panel ConfX (нажмите на иконку ConfX в панели инструментов).
+3. При необходимости выберите preset извлечения.
+4. Нажмите **Export**.
+5. Сохраните сгенерированный ZIP-файл.
+
+### Выгрузка блока через picker
+
+1. Откройте страницу Confluence в браузере.
+2. Откройте side panel ConfX и нажмите **Launch picker**.
+3. Наведите курсор на страницу, чтобы подсветить целевой блок. Используйте `[` / `]` для изменения уровня выделения. Нажмите `Esc` для отмены.
+4. Кликните по блоку для выбора.
+5. В side panel нажмите **Export block**.
+6. Сохраните сгенерированный ZIP-файл.
+
+### Выгрузка Jira issue
+
+1. Откройте Jira issue в браузере.
+2. Откройте side panel ConfX (нажмите на иконку ConfX в панели инструментов).
+3. Нажмите **Export**.
+4. Сохраните сгенерированный ZIP-файл.
+
+## Системные требования
+
+- **Node.js 22** (соответствует CI workflow).
+- **npm** (поставляется с Node.js).
+- **Chrome / Chromium** -- для локальных сборок и smoke-проверок.
+- **Яндекс Браузер** -- для smoke-проверок Yandex CRX (опционально).
+- **OpenSSL** -- для генерации локального Yandex signing key (опционально).
 
 ## Локальная разработка
 
@@ -73,26 +142,6 @@ npm run release:yandex
 
 Сгенерированный локальный ключ предназначен только для разработки, если команда явно не назначила его release-ключом.
 
-## Release-артефакты
-
-```sh
-npm run release:chrome   # dist/ -> release/confx-chrome.zip
-npm run release:yandex   # dist-yandex/ -> release/confx-yandex.crx
-npm run release:all      # оба артефакта и release/SHA256SUMS
-```
-
-`release:all` падает, если отсутствует Yandex signing key. Это ожидаемо: полный релиз должен включать оба browser artifacts.
-
-Generated outputs игнорируются и не должны попадать в git:
-
-- `dist/`
-- `dist-yandex/`
-- `release/`
-- `keys/`
-- `*.crx`
-- `*.zip`
-- `*.pem`
-
 ## GitHub Actions distribution
 
 Release workflow собирает оба артефакта и публикует их как workflow artifacts. Для тегов `v*` он также прикрепляет артефакты к GitHub Release.
@@ -102,7 +151,7 @@ Release workflow собирает оба артефакта и публикуе�
 | Имя | Тип | Назначение |
 |---|---|---|
 | `YANDEX_CRX_PRIVATE_KEY_B64` | GitHub Actions secret | Base64-кодированный private signing key для `confx-yandex.crx`. |
-| `YANDEX_EXTENSION_ID` | Workflow env / secret override | Ожидаемый Yandex extension ID. Значение релиза по умолчанию: `cjhpodjghfokdfoljmfbgibjjfpafdip`. |
+| `YANDEX_EXTENSION_ID` | Workflow env / secret override | Ожидаемый Yandex extension ID |
 
 Workflow записывает private key во временный файл, использует его только для Yandex build, валидирует вычисленный extension ID и удаляет файл в конце job.
 
@@ -117,27 +166,24 @@ Workflow записывает private key во временный файл, ис
 | Direct GitHub artifact | `confx-chrome.zip` | `confx-yandex.crx` |
 | Стабильность extension ID | Зависит от install channel | Зависит от Yandex signing key |
 
-## Permissions and security
-
-ConfX использует browser session cookies для чтения Confluence и Jira через текущий browser context. Отдельный Confluence token не нужен.
-
-Manifest permissions включают доступ к tabs, scripting, downloads, storage и host permissions для HTTP/HTTPS страниц. Учитывайте этот широкий доступ перед установкой development builds.
-
-Yandex CRX signing требует аккуратной работы:
-
-- не коммитьте private keys;
-- не отправляйте ключи в issues, чат или документацию;
-- храните release keys в secret manager или GitHub Actions secrets;
-- валидируйте `YANDEX_EXTENSION_ID` перед публикацией release artifacts.
-
 ## Проверка
+
+### Локальная проверка (без приватных ключей)
 
 ```sh
 npm ci
-npx tsc --build --force
-npx vitest run
+npm run typecheck
+npm test
+npm run build:chrome
+```
+
+### Полная release-проверка (требуется Yandex signing key)
+
+```sh
 npm run release:all
 ```
+
+`release:all` требует `YANDEX_KEY_PATH` или локальный файл `keys/yandex.pem`.
 
 Проверка корня Chrome ZIP:
 

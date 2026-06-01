@@ -1,12 +1,27 @@
-import type {
-  ExtractedJiraIssue,
-  JiraAttachment,
-  JiraComment,
-  JiraIssueMeta,
-} from "@/types";
+import type { ExtractedJiraIssue, JiraAttachment, JiraComment, JiraIssueMeta } from "@/types";
 
-const CSV_HEADER = "key,project,type,status,priority,resolution,assignee,reporter,epic,created,updated";
-const YAML_SPECIAL_CHARS = [":", "#", "[", "]", "{", "}", "&", "*", "!", "|", ">", "'", '"', "%", "@", "`", ",", "\n"];
+const CSV_HEADER =
+  "key,project,type,status,priority,resolution,assignee,reporter,epic,created,updated";
+const YAML_SPECIAL_CHARS = [
+  ":",
+  "#",
+  "[",
+  "]",
+  "{",
+  "}",
+  "&",
+  "*",
+  "!",
+  "|",
+  ">",
+  "'",
+  '"',
+  "%",
+  "@",
+  "`",
+  ",",
+  "\n",
+];
 
 export function jiraIssueToMarkdown(
   meta: JiraIssueMeta,
@@ -101,7 +116,9 @@ function buildJiraFrontMatter(meta: JiraIssueMeta): string {
 
 function jiraCommentsToMarkdown(comments: JiraComment[]): string {
   const items = comments
-    .map((comment) => `**${comment.author}** — ${formatDate(comment.createdAt)}\n${comment.markdown}`)
+    .map(
+      (comment) => `**${comment.author}** — ${formatDate(comment.createdAt)}\n${comment.markdown}`,
+    )
     .join("\n\n");
 
   return `## Comments\n\n${items}`;

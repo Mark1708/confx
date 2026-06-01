@@ -1,6 +1,11 @@
-import type { ConfluencePageMeta, ExtractedAttachment, ExtractedPage, ExtractionRule } from "@/types";
+import type {
+  ConfluencePageMeta,
+  ExtractedAttachment,
+  ExtractedPage,
+  ExtractionRule,
+} from "@/types";
 import { fetchAttachments } from "./attachment-fetcher";
-import { fetchComments, commentsToMarkdown } from "./comment-fetcher";
+import { commentsToMarkdown, fetchComments } from "./comment-fetcher";
 import type { ConfluenceApi } from "./confluence-api";
 import { buildFrontMatter } from "./front-matter";
 import { fetchHistory } from "./history-fetcher";
@@ -20,6 +25,7 @@ export interface ExtractPageOptions {
   signal?: AbortSignal;
   /** Enable attachment export (default: true) */
   exportAttachments?: boolean;
+  exportImages?: boolean;
   /** Max attachment size in bytes */
   maxAttachmentSize?: number;
   /** Export page comments (default: false) */
@@ -35,14 +41,7 @@ export async function extractOnePage(
 ): Promise<ExtractedPage> {
   const raw = await api.getPage(
     pageId,
-    [
-      "body.view",
-      "children.attachment",
-      "ancestors",
-      "space",
-      "version",
-      "metadata.labels",
-    ],
+    ["body.view", "children.attachment", "ancestors", "space", "version", "metadata.labels"],
     opts.signal,
   );
   const meta = api.toPageMeta(raw);
@@ -62,13 +61,11 @@ export async function extractFromHtml(
   const { mainHtml, tables } = applyRules(html, opts.rules);
 
   // Fetch images first to know their zip paths for link rewriting in MD
-  const { images, srcToZip } = await fetchImagesFromHtml(
-    mainHtml,
-    api,
-    imagesSubfolder,
-    opts.dedup,
-    opts.signal,
-  );
+  const imageResult =
+    opts.exportImages === false
+      ? { images: [], srcToZip: new Map<string, string>() }
+      : await fetchImagesFromHtml(mainHtml, api, imagesSubfolder, opts.dedup, opts.signal);
+  const { images, srcToZip } = imageResult;
 
   let attachments: ExtractedAttachment[] = [];
   let attachmentLinkToZip = new Map<string, string>();
@@ -111,31 +108,30 @@ export async function extractFromHtml(
     linkRewriter,
   });
 
-  const fm = opts.includeFrontMatter !== false
-    ? buildFrontMatter(meta, { commentCount: 0, versionCount: 0 })
-    : "";
+  const fm =
+    opts.includeFrontMatter !== false
+      ? buildFrontMatter(meta, { commentCount: 0, versionCount: 0 })
+      : "";
   const title = `# ${meta.title}\n\n`;
   const markdown = fm + title + md;
 
   // Fetch comments if enabled
-  const comments = opts.includeComments
-    ? await fetchComments(meta.id, api, opts.signal)
-    : [];
+  const comments = opts.includeComments ? await fetchComments(meta.id, api, opts.signal) : [];
 
   // Fetch history if enabled
-  const history = opts.includeHistory
-    ? await fetchHistory(meta.id, api, opts.signal)
-    : [];
+  const history = opts.includeHistory ? await fetchHistory(meta.id, api, opts.signal) : [];
 
   // Append comments to markdown if present
-  const fullMarkdown = comments.length > 0
-    ? markdown + commentsToMarkdown(comments)
-    : markdown;
+  const fullMarkdown = comments.length > 0 ? markdown + commentsToMarkdown(comments) : markdown;
 
   // Rebuild front matter with actual counts
-  const finalMarkdown = opts.includeFrontMatter !== false
-    ? buildFrontMatter(meta, { commentCount: comments.length, versionCount: history.length }) + title + md + (comments.length > 0 ? commentsToMarkdown(comments) : "")
-    : fullMarkdown;
+  const finalMarkdown =
+    opts.includeFrontMatter !== false
+      ? buildFrontMatter(meta, { commentCount: comments.length, versionCount: history.length }) +
+        title +
+        md +
+        (comments.length > 0 ? commentsToMarkdown(comments) : "")
+      : fullMarkdown;
 
   return {
     meta,

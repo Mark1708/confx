@@ -13,27 +13,49 @@ import type { OpenMdViewerRequest } from "@/types";
  * popup window when the native popup API is unavailable.
  */
 
-const SIDEPANEL_URL = "src/sidepanel/index.html";
+const SIDEPANEL_URL = "sidepanel/index.html";
 const FALLBACK_WINDOW_ID_KEY = "cx:fallbackWindowId";
 const PICKER_RESULT_KEY = "cx:pickerResult";
 const OPEN_CONFX_INTENT_KEY = "cx:openConfxIntent";
 
-if (hasSidePanel()) {
-  BrowserApi.onInstalled(() => {
-    BrowserApi.setPanelBehavior({ openPanelOnActionClick: true })
-      .catch((e) => console.error("sidePanel init error:", e));
-  });
+function validateEnvironment(): boolean {
+  if (!chrome.runtime?.id) {
+    console.error("[cx] missing chrome.runtime.id");
+    return false;
+  }
 
-  BrowserApi.setPanelBehavior({ openPanelOnActionClick: true })
-    .catch(() => {});
+  if (!chrome.storage?.session) {
+    console.error("[cx] missing chrome.storage.session");
+    return false;
+  }
+
+  if (!chrome.tabs) {
+    console.error("[cx] missing chrome.tabs");
+    return false;
+  }
+
+  return true;
 }
 
-// Allow popup/sidepanel to read chrome.storage.session
-chrome.storage.session.setAccessLevel({ accessLevel: "TRUSTED_AND_UNTRUSTED_CONTEXTS" }).catch(() => {});
+if (validateEnvironment()) {
+  if (hasSidePanel()) {
+    BrowserApi.onInstalled(() => {
+      BrowserApi.setPanelBehavior({ openPanelOnActionClick: true }).catch((e) =>
+        console.error("sidePanel init error:", e),
+      );
+    });
 
-BrowserApi.onActionClicked(() => {
-  openFallbackWindow();
-});
+    BrowserApi.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+  }
+
+  // Allow popup/sidepanel to read chrome.storage.session
+  chrome.storage.session
+    .setAccessLevel({ accessLevel: "TRUSTED_AND_UNTRUSTED_CONTEXTS" })
+    .catch(() => {});
+
+  BrowserApi.onActionClicked(() => {
+    openFallbackWindow();
+  });
 
 async function openFallbackWindow(): Promise<void> {
   const url = BrowserApi.getURL(SIDEPANEL_URL);
@@ -78,17 +100,17 @@ async function openSidePanelOrFallback(sender: chrome.runtime.MessageSender): Pr
   await BrowserApi.openSidePanel({ windowId });
 }
 
-BrowserApi.onWindowRemoved(async (removedId) => {
-  const stored = await storage.session.get(FALLBACK_WINDOW_ID_KEY);
-  if (stored[FALLBACK_WINDOW_ID_KEY] === removedId) {
-    await storage.session.remove(FALLBACK_WINDOW_ID_KEY);
-  }
-});
+  BrowserApi.onWindowRemoved(async (removedId) => {
+    const stored = await storage.session.get(FALLBACK_WINDOW_ID_KEY);
+    if (stored[FALLBACK_WINDOW_ID_KEY] === removedId) {
+      await storage.session.remove(FALLBACK_WINDOW_ID_KEY);
+    }
+  });
 
-MessageBus.on("open-jira-export", async (_msg, sender) => {
-  await openSidePanelOrFallback(sender);
-  return { ok: true };
-});
+  MessageBus.on("open-jira-export", async (_msg, sender) => {
+    await openSidePanelOrFallback(sender);
+    return { ok: true };
+  });
 
 async function openNativePopupOrFallback(sender: chrome.runtime.MessageSender): Promise<void> {
   try {
@@ -104,30 +126,32 @@ async function openNativePopupOrFallback(sender: chrome.runtime.MessageSender): 
   await openSidePanelOrFallback(sender);
 }
 
-MessageBus.on("open-confx", async (msg, sender) => {
-  await storage.session.set({ [OPEN_CONFX_INTENT_KEY]: msg });
-  await openNativePopupOrFallback(sender);
-  return { ok: true };
-});
-
-MessageBus.on<OpenMdViewerRequest["kind"]>("open-md-viewer", (msg, sender) => {
-  const typed = msg as OpenMdViewerRequest;
-  const params = new URLSearchParams({
-    host: typed.host,
-    pageId: typed.pageId,
+  MessageBus.on("open-confx", async (msg, sender) => {
+    await storage.session.set({ [OPEN_CONFX_INTENT_KEY]: msg });
+    await openNativePopupOrFallback(sender);
+    return { ok: true };
   });
-  if (typed.title) params.set("title", typed.title);
 
-  const viewerUrl = BrowserApi.getURL(`src/viewer/index.html?${params.toString()}`);
+  MessageBus.on<OpenMdViewerRequest["kind"]>("open-md-viewer", (msg, sender) => {
+    const typed = msg as OpenMdViewerRequest;
+    const params = new URLSearchParams({
+      host: typed.host,
+      pageId: typed.pageId,
+    });
+    if (typed.title) params.set("title", typed.title);
 
-  return BrowserApi.createTab({
-    url: viewerUrl,
-    openerTabId: sender.tab?.id,
-    active: true,
-  }).then((tab) => ({ ok: true, tabId: tab.id }));
-});
+    const viewerUrl = BrowserApi.getURL(`viewer/index.html?${params.toString()}`);
 
-MessageBus.on("picker-result", async (msg) => {
-  await storage.session.set({ [PICKER_RESULT_KEY]: msg });
-  return { ok: true };
-});
+    return BrowserApi.createTab({
+      url: viewerUrl,
+      openerTabId: sender.tab?.id,
+      active: true,
+    }).then((tab) => ({ ok: true, tabId: tab.id }));
+  });
+  
+  MessageBus.on("picker-result", async (msg, sender) => {
+    await storage.session.set({ [PICKER_RESULT_KEY]: msg });
+    await openNativePopupOrFallback(sender);
+    return { ok: true };
+  });
+}

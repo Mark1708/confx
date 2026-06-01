@@ -1,7 +1,8 @@
+/// <reference types="chrome" />
+
 import { createPrivateKey, createPublicKey } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { defineManifest } from "@crxjs/vite-plugin";
 import pkg from "../package.json";
 
 // ─── Target detection ─────────────────────────────────────────────
@@ -9,9 +10,20 @@ import pkg from "../package.json";
 type Target = "chrome" | "yandex";
 const TARGET = (process.env.TARGET ?? "chrome") as Target;
 
+type ExtensionManifest = chrome.runtime.ManifestV3 & {
+  side_panel?: {
+    default_path: string;
+  };
+  key?: string;
+};
+type ExtensionManifestBase = Omit<ExtensionManifest, "name">;
+
 // ─── Yandex signing key ───────────────────────────────────────────
 
-const YANDEX_KEY_PATH = path.resolve(process.cwd(), process.env.YANDEX_KEY_PATH ?? "keys/yandex.pem");
+const YANDEX_KEY_PATH = path.resolve(
+  process.cwd(),
+  process.env.YANDEX_KEY_PATH ?? "keys/yandex.pem",
+);
 
 function readYandexPublicKey(): string {
   if (!existsSync(YANDEX_KEY_PATH)) {
@@ -41,58 +53,52 @@ const sharedPermissions = [
 
 const baseManifest = {
   manifest_version: 3 as const,
-  description: "Exports Confluence and Jira content to Markdown, CSV, and ZIP archives",
+  default_locale: "en",
+  description: "__MSG_extensionDescription__",
   version: pkg.version,
   icons: {
-    16: "src/assets/icon-16.png",
-    32: "src/assets/icon-32.png",
-    48: "src/assets/icon-48.png",
-    128: "src/assets/icon-128.png",
+    16: "assets/icon-16.png",
+    32: "assets/icon-32.png",
+    48: "assets/icon-48.png",
+    128: "assets/icon-128.png",
   },
   action: {
-    default_title: "ConfX",
+    default_title: "__MSG_actionDefaultTitle__",
     default_icon: {
-      16: "src/assets/icon-16.png",
-      32: "src/assets/icon-32.png",
-      48: "src/assets/icon-48.png",
+      16: "assets/icon-16.png",
+      32: "assets/icon-32.png",
+      48: "assets/icon-48.png",
     },
   },
   side_panel: {
-    default_path: "src/sidepanel/index.html",
+    default_path: "sidepanel/index.html",
   },
-  options_page: "src/options/index.html",
+  options_page: "options/index.html",
   background: {
-    service_worker: "src/background/service-worker.ts",
-    type: "module",
+    service_worker: "background/service-worker.js",
+    type: "module" as const,
   },
-  permissions: [...sharedPermissions],
+  permissions: Array.from(sharedPermissions),
   host_permissions: ["https://*/*", "http://*/*"],
   content_scripts: [
     {
       matches: ["https://*/*", "http://*/*"],
-      js: ["src/content/picker-entry.ts"],
+      js: ["content-scripts/picker-entry.js"],
       run_at: "document_idle",
     },
   ],
   web_accessible_resources: [
     {
-      resources: [
-        "src/content/picker.css",
-        "src/content/confx-button.css",
-        "src/viewer/index.html",
-        "src/sidepanel/index.html",
-      ],
+      resources: ["viewer/index.html", "sidepanel/index.html"],
       matches: ["<all_urls>"],
     },
   ],
-};
+} satisfies ExtensionManifestBase;
 
 // ─── Merge + export ───────────────────────────────────────────────
 
 function targetName(): string {
-  return TARGET === "yandex"
-    ? "ConfX (Yandex)"
-    : "ConfX";
+  return TARGET === "yandex" ? "__MSG_extensionNameYandex__" : "__MSG_extensionName__";
 }
 
 function targetKey(): Record<string, string> {
@@ -105,15 +111,19 @@ function targetKey(): Record<string, string> {
  * and conflicts with openPanelOnActionClick side panel behavior.
  */
 function targetPopup(): Record<string, string> {
-  return TARGET === "yandex" ? { default_popup: "src/sidepanel/index.html" } : {};
+  return TARGET === "yandex" ? { default_popup: "sidepanel/index.html" } : {};
 }
 
-export default defineManifest({
-  ...baseManifest,
-  name: targetName(),
-  action: {
-    ...baseManifest.action,
-    ...targetPopup(),
-  },
-  ...targetKey(),
-});
+export function generateManifest(): ExtensionManifest {
+  return {
+    ...baseManifest,
+    ...targetKey(),
+    name: targetName(),
+    action: {
+      ...baseManifest.action,
+      ...targetPopup(),
+    },
+  };
+}
+
+export default generateManifest;

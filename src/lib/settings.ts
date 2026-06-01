@@ -1,12 +1,15 @@
+import { DEFAULT_LOCALE_OVERRIDE, normalizeLocaleOverride } from "@/i18n";
 import { storage } from "@/lib/browser";
-import type { AppSettings, Theme } from "@/types";
+import { DEFAULT_PRESET_ID } from "@/lib/rule-engine";
+import type { AppLocaleOverride, AppSettings, Theme } from "@/types";
 
 const STORAGE_KEY = "cx.settings.v1";
 
 /** Current schema version — bump when adding migrations below. */
-export const CURRENT_SETTINGS_VERSION = 1;
+export const CURRENT_SETTINGS_VERSION = 4;
 
 export const THEMES: Theme[] = ["dark", "light"];
+export const LOCALE_OVERRIDES: AppLocaleOverride[] = ["auto", "ru", "en"];
 
 export const THEME_LABELS: Record<Theme, string> = {
   dark: "Тёмная",
@@ -31,10 +34,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   maxAttachmentSize: 50 * 1024 * 1024,
   skipUnchanged: false,
   maxDepth: 10,
-  activePresetId: "generic",
+  activePresetId: DEFAULT_PRESET_ID,
   customRules: [],
+  showConfluenceButton: true,
+  showJiraButton: true,
   fontSize: 14,
   theme: "dark",
+  locale: DEFAULT_LOCALE_OVERRIDE,
 };
 
 export const FONT_SIZE_MIN = 11;
@@ -62,6 +68,9 @@ type Migration = (settings: Record<string, unknown>) => Record<string, unknown>;
 const MIGRATIONS: readonly Migration[] = [
   // v0 → v1: Initial versioned schema. No structural changes — just adds `version` field.
   (settings) => settings,
+  (settings) => ({ ...settings, locale: normalizeLocaleOverride(settings.locale) }),
+  (settings) => ({ ...settings, activePresetId: normalizePresetId(settings.activePresetId) }),
+  (settings) => ({ ...settings, showConfluenceButton: true, showJiraButton: true }),
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -70,6 +79,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeTheme(value: unknown): Theme {
   return value === "light" || value === "dark" ? value : DEFAULT_SETTINGS.theme;
+}
+
+function normalizePresetId(value: unknown): string {
+  if (value === "generic") return "md-only";
+  if (value === "md-only" || value === "md-attachments" || value === "tables-only") return value;
+  return DEFAULT_SETTINGS.activePresetId;
+}
+
+function stripUndefinedSettings(settings: Partial<AppSettings>): Partial<AppSettings> {
+  return Object.fromEntries(
+    Object.entries(settings).filter(([, value]) => value !== undefined),
+  ) as Partial<AppSettings>;
+}
+
+function normalizeSettings(settings: Partial<AppSettings>): AppSettings {
+  const definedSettings = stripUndefinedSettings(settings);
+
+  return {
+    ...DEFAULT_SETTINGS,
+    ...definedSettings,
+    theme: normalizeTheme(definedSettings.theme),
+    locale: normalizeLocaleOverride(definedSettings.locale),
+    activePresetId: normalizePresetId(definedSettings.activePresetId),
+  };
 }
 
 /**
@@ -90,8 +123,7 @@ export function migrateSettings(raw: unknown): AppSettings {
 
   if (version > CURRENT_SETTINGS_VERSION) {
     // Forward-compatible: newer schema, preserve as-is
-    const migrated = { ...DEFAULT_SETTINGS, ...(settings as Partial<AppSettings>) };
-    return { ...migrated, theme: normalizeTheme(migrated.theme) };
+    return normalizeSettings(settings as Partial<AppSettings>);
   }
 
   for (let i = version; i < MIGRATIONS.length; i++) {
@@ -99,9 +131,8 @@ export function migrateSettings(raw: unknown): AppSettings {
     version = i + 1;
   }
 
-  settings.version = CURRENT_SETTINGS_VERSION;
-  const migrated = { ...DEFAULT_SETTINGS, ...(settings as Partial<AppSettings>) };
-  return { ...migrated, theme: normalizeTheme(migrated.theme) };
+  settings = { ...settings, version: CURRENT_SETTINGS_VERSION };
+  return normalizeSettings(settings as Partial<AppSettings>);
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +146,11 @@ export async function loadSettings(): Promise<AppSettings> {
 
 export async function saveSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
   const current = await loadSettings();
-  const next: AppSettings = { ...current, ...patch, version: CURRENT_SETTINGS_VERSION };
+  const next: AppSettings = normalizeSettings({
+    ...current,
+    ...patch,
+    version: CURRENT_SETTINGS_VERSION,
+  });
   await storage.sync.set({ [STORAGE_KEY]: next });
   return next;
 }

@@ -1,5 +1,5 @@
-import type { SubscriptionScope } from "@/types";
 import { storage } from "@/lib/browser";
+import type { SubscriptionScope } from "@/types";
 
 /**
  * Снимок одной страницы, достаточный для детекции изменений.
@@ -15,6 +15,19 @@ export interface PageSnapshotEntry {
 
 export type PageSnapshot = Record<string, PageSnapshotEntry>;
 
+export interface DiffSummary {
+  added: number;
+  removed: number;
+  changed: number;
+  moved: number;
+}
+
+export interface SubscriptionCheckHistoryEntry {
+  checkedAt: string;
+  summary: DiffSummary;
+  diff: SubscriptionDiff;
+}
+
 export interface Subscription {
   id: string;
   scope: SubscriptionScope;
@@ -25,12 +38,8 @@ export interface Subscription {
   createdAt: string;
   lastCheckedAt?: string;
   /** Результат последней проверки (для бейджа/сводки). */
-  lastDiffSummary?: {
-    added: number;
-    removed: number;
-    changed: number;
-    moved: number;
-  };
+  lastDiffSummary?: DiffSummary;
+  checkHistory?: SubscriptionCheckHistoryEntry[];
   snapshot: PageSnapshot;
 }
 
@@ -55,6 +64,7 @@ export interface SubscriptionDiff {
 }
 
 const STORAGE_KEY = "cx.subscriptions.v1";
+export const MAX_CHECK_HISTORY_ENTRIES = 20;
 
 interface StoredShape {
   subscriptions: Subscription[];
@@ -82,16 +92,41 @@ export async function getSubscription(id: string): Promise<Subscription | null> 
 
 export async function upsertSubscription(sub: Subscription): Promise<void> {
   const state = await load();
-  const idx = state.subscriptions.findIndex((s) => s.id === sub.id);
-  if (idx >= 0) state.subscriptions[idx] = sub;
-  else state.subscriptions.push(sub);
-  await save(state);
+  const exists = state.subscriptions.some((s) => s.id === sub.id);
+  const subscriptions = exists
+    ? state.subscriptions.map((current) => (current.id === sub.id ? sub : current))
+    : [...state.subscriptions, sub];
+  await save({ subscriptions });
 }
 
 export async function deleteSubscription(id: string): Promise<void> {
   const state = await load();
-  state.subscriptions = state.subscriptions.filter((s) => s.id !== id);
-  await save(state);
+  await save({ subscriptions: state.subscriptions.filter((s) => s.id !== id) });
+}
+
+export function summarizeDiff(diff: SubscriptionDiff): DiffSummary {
+  return {
+    added: diff.added.length,
+    removed: diff.removed.length,
+    changed: diff.changed.length,
+    moved: diff.moved.length,
+  };
+}
+
+export function appendCheckHistory(
+  subscription: Subscription,
+  diff: SubscriptionDiff,
+): Subscription {
+  const entry: SubscriptionCheckHistoryEntry = {
+    checkedAt: diff.checkedAt,
+    summary: summarizeDiff(diff),
+    diff,
+  };
+  const checkHistory = [...(subscription.checkHistory ?? []), entry].slice(
+    -MAX_CHECK_HISTORY_ENTRIES,
+  );
+
+  return { ...subscription, checkHistory };
 }
 
 export function makeSubscriptionId(host: string, rootId: string, scope: SubscriptionScope): string {

@@ -1,5 +1,5 @@
-import { ConfluenceApi } from "./confluence-api";
 import { storage } from "@/lib/browser";
+import { createConfluenceApi } from "@/lib/create-api";
 
 export interface TreeNode {
   id: string;
@@ -33,7 +33,7 @@ async function loadHost(host: string): Promise<HostCache> {
   return (res[key(host)] as HostCache) ?? {};
 }
 
-let persistScheduled = new Map<string, number>();
+const persistScheduled = new Map<string, number>();
 function schedulePersist(s: Store): void {
   const existing = persistScheduled.get(s.host);
   if (existing) clearTimeout(existing);
@@ -123,7 +123,7 @@ async function fetchAndMergeChildren(
     notify(s);
   }
   try {
-    const api = new ConfluenceApi(s.host);
+    const api = await createConfluenceApi(s.host);
     const limit = 100;
     const kids: Array<{ id: string; title: string; hasChildren?: boolean }> = [];
     let start = 0;
@@ -236,7 +236,7 @@ export async function ensurePath(host: string, pageId: string): Promise<void> {
 
   const hasFullPath = (): boolean => {
     const n = s.cache[pageId];
-    if (!n || !n.title) return false;
+    if (!n?.title) return false;
     let cursor: string | undefined = n.parentId;
     const seen = new Set<string>([pageId]);
     while (cursor) {
@@ -252,7 +252,7 @@ export async function ensurePath(host: string, pageId: string): Promise<void> {
 
   const promise = (async () => {
     try {
-      const api = new ConfluenceApi(host);
+      const api = await createConfluenceApi(host);
       const page = await api.getPage(pageId, ["ancestors", "children.page"]);
       const ancestors = page.ancestors ?? [];
       const chain: Array<{ id: string; title: string }> = [
@@ -327,13 +327,9 @@ export async function searchPagesOnServer(
 ): Promise<SearchHit[]> {
   const s = getStore(host);
   await waitReady(host);
-  const api = new ConfluenceApi(host);
+  const api = await createConfluenceApi(host);
   const safe = query.replace(/"/g, '\\"');
-  const cql = [
-    "type=page",
-    spaceKey ? `space="${spaceKey}"` : null,
-    `title~"${safe}"`,
-  ]
+  const cql = ["type=page", spaceKey ? `space="${spaceKey}"` : null, `title~"${safe}"`]
     .filter(Boolean)
     .join(" AND ");
   const params = new URLSearchParams();
@@ -387,7 +383,8 @@ export async function loadSubtree(
   const seen = new Set<string>();
   const stack: string[] = [rootId];
   while (stack.length) {
-    const id = stack.pop()!;
+    const id = stack.pop();
+    if (!id) continue;
     if (seen.has(id)) continue;
     seen.add(id);
     order.push(id);

@@ -10,14 +10,15 @@ function cellText(el: Element): string {
   clone.querySelectorAll(".tablesorter-header-inner").forEach((n) => {
     n.replaceWith(...Array.from(n.childNodes));
   });
-  clone.querySelectorAll(".tablesorter-headerIcon, .tablesorter-header-indicator").forEach(
-    (n) => n.remove(),
-  );
+  clone
+    .querySelectorAll(".tablesorter-headerIcon, .tablesorter-header-indicator")
+    .forEach((n) => n.remove());
   clone.querySelectorAll("br").forEach((br) => br.replaceWith("\n"));
   // Prefer visible alt over missing src for images
   clone.querySelectorAll("img").forEach((img) => {
     const alt = img.getAttribute("alt") || "";
-    const src = img.getAttribute("data-linked-resource-default-alias") || img.getAttribute("src") || "";
+    const src =
+      img.getAttribute("data-linked-resource-default-alias") || img.getAttribute("src") || "";
     img.replaceWith(`[image:${alt || src}]`);
   });
   clone.querySelectorAll("li").forEach((li) => {

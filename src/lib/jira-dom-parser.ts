@@ -21,8 +21,7 @@ function getIssueKey(doc: Document): string | null {
 
 /** Get text content of a selector, trimmed. Returns empty string if not found. */
 function getText(doc: Document, selector: string): string {
-  return (doc.querySelector<HTMLElement>(selector)?.textContent?.trim() ?? "")
-    .replace(/\s+/g, " ");
+  return (doc.querySelector<HTMLElement>(selector)?.textContent?.trim() ?? "").replace(/\s+/g, " ");
 }
 
 /** Get text from an element's img alt attribute (Jira uses icons with alt text). */
@@ -54,7 +53,9 @@ function getLinkTexts(doc: Document, selector: string): string[] {
     if (!text || text === "Нет" || text === "Не заполнено") return [];
     return [text];
   }
-  return Array.from(links).map((a) => a.textContent?.trim() ?? "").filter(Boolean);
+  return Array.from(links)
+    .map((a) => a.textContent?.trim() ?? "")
+    .filter(Boolean);
 }
 
 /** Extract labels from `span.labels[id^="labels-"]` elements. */
@@ -106,10 +107,7 @@ function getResolution(doc: Document): string | null {
  * Parse Jira issue metadata from a saved HTML page.
  * Returns null if the page is not a Jira issue.
  */
-export function parseJiraIssueFromHtml(
-  html: string,
-  baseUrl: string,
-): JiraIssueMeta | null {
+export function parseJiraIssueFromHtml(html: string, baseUrl: string): JiraIssueMeta | null {
   const doc = new DOMParser().parseFromString(html, "text/html");
 
   const key = getIssueKey(doc);
@@ -119,8 +117,7 @@ export function parseJiraIssueFromHtml(
   const summary = getText(doc, "#summary-val");
   const type = getImgAlt(doc, "#type-val") || getText(doc, "#type-val");
   const status =
-    getText(doc, "#status-val .jira-issue-status-lozenge") ||
-    getText(doc, "#status-val");
+    getText(doc, "#status-val .jira-issue-status-lozenge") || getText(doc, "#status-val");
   const priority = getImgAlt(doc, "#priority-val") || getText(doc, "#priority-val");
   const resolution = getResolution(doc);
   const assignee = getUserKey(doc, "#assignee-val");

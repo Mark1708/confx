@@ -1,3 +1,5 @@
+import type { LocaleOverride } from "@/i18n";
+
 export interface ConfluencePageMeta {
   id: string;
   title: string;
@@ -18,13 +20,7 @@ export interface PageTreeNode {
   depth: number;
 }
 
-export type RuleAction =
-  | "skip"
-  | "to-csv"
-  | "to-md"
-  | "extract-images"
-  | "keep-html"
-  | "gfm-table";
+export type RuleAction = "skip" | "to-csv" | "to-md" | "extract-images" | "keep-html" | "gfm-table";
 
 export type RuleType = "selector" | "section" | "spoiler" | "table";
 
@@ -51,6 +47,8 @@ export type OutputFormat = "md-csv-images" | "md-only" | "html-archive";
 
 export type Theme = "light" | "dark";
 
+export type AppLocaleOverride = LocaleOverride;
+
 export interface AppSettings {
   /** Settings schema version for migration tracking. */
   version: number;
@@ -73,9 +71,12 @@ export interface AppSettings {
   maxDepth: number;
   activePresetId: string;
   customRules: ExtractionRule[];
+  showConfluenceButton: boolean;
+  showJiraButton: boolean;
   /** Базовый размер шрифта UI в px. Влияет на весь масштаб через rem. */
   fontSize: number;
   theme: Theme;
+  locale: AppLocaleOverride;
 }
 
 export interface ExtractPageRequest {
@@ -83,6 +84,15 @@ export interface ExtractPageRequest {
   pageId: string;
   host: string;
   presetId: string;
+}
+
+export interface ExtractWatchChangedRequest {
+  kind: "extract-watch-changed";
+  host: string;
+  presetId: string;
+  pageIds: string[];
+  rootTitle: string;
+  diff: unknown;
 }
 
 export interface ExtractSubtreeRequest {
@@ -157,6 +167,7 @@ export type OpenConfxRequest = {
 
 export type ExtensionRequest =
   | ExtractPageRequest
+  | ExtractWatchChangedRequest
   | ExtractSubtreeRequest
   | ExtractBlockRequest
   | ExtractSpaceRequest
@@ -193,11 +204,7 @@ export interface PickerResult {
   meta: ConfluencePageMeta;
 }
 
-export type ExtensionMessage =
-  | ExtensionRequest
-  | ProgressUpdate
-  | ExtractResult
-  | PickerResult;
+export type ExtensionMessage = ExtensionRequest | ProgressUpdate | ExtractResult | PickerResult;
 
 export interface AttachmentInfo {
   id: string;
@@ -281,7 +288,14 @@ export type SubscriptionScope = "page" | "subtree";
 export type ExportJobStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
 export interface ExportJobConfig {
-  kind: "extract-page" | "extract-subtree" | "extract-block" | "extract-space" | "extract-jira-issue" | "extract-jira-search";
+  kind:
+    | "extract-page"
+    | "extract-watch-changed"
+    | "extract-subtree"
+    | "extract-block"
+    | "extract-space"
+    | "extract-jira-issue"
+    | "extract-jira-search";
   host: string;
   presetId?: string;
   pageId?: string;

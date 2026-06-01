@@ -1,5 +1,4 @@
 import TurndownService from "turndown";
-// @ts-expect-error — no types shipped
 import { gfm } from "turndown-plugin-gfm";
 
 export interface HtmlToMdOptions {
@@ -132,6 +131,68 @@ function tableToGfm(table: HTMLTableElement, cellConv: (el: Element) => string):
   return `\n\n${lines.join("\n")}\n\n`;
 }
 
+function isFabricCodeBlock(node: Node): boolean {
+  if (!(node instanceof HTMLElement) || node.nodeName !== "CODE") return false;
+  const parent = node.parentElement;
+  return !!parent && parent.hasAttribute("data-ds--code--code-block");
+}
+
+function getFabricCodeLanguage(codeEl: HTMLElement): string {
+  const codeLang = codeEl.getAttribute("data-code-lang") || "";
+  if (codeLang) return codeLang;
+
+  const wrapperLang = codeEl.parentElement?.getAttribute("data-code-lang") || "";
+  if (wrapperLang) return wrapperLang;
+
+  const codeClass = codeEl.getAttribute("class") || "";
+  const langMatch = codeClass.match(/language-(\S+)/);
+  return langMatch?.[1] ?? "";
+}
+
+function getSyntaxHighlighterLanguage(el: Element): string {
+  const params = el.getAttribute("data-syntaxhighlighter-params") || el.getAttribute("class") || "";
+  const brushMatch = params.match(/brush:\s*([\w-]+)/i);
+  if (brushMatch) return brushMatch[1].toLowerCase();
+
+  const languageMatch = params.match(/language-([\w-]+)/i);
+  if (languageMatch) return languageMatch[1].toLowerCase();
+
+  const className = el.getAttribute("class") || "";
+  const languageClass = className
+    .split(/\s+/)
+    .find((token) => token && !["code", "panel", "pdl", "syntaxhighlighter-pre"].includes(token));
+  return languageClass?.toLowerCase() ?? "";
+}
+
+function fencedCode(language: string, code: string): string {
+  return `\n\n\`\`\`${language}\n${code.replace(/\n+$/g, "")}\n\`\`\`\n\n`;
+}
+
+function convertJiraWikiMarkup(markdown: string): string {
+  const normalizedWikiMarkup = markdown
+    .replace(/\\\[(?=[^\]\n]*\|)/g, "[")
+    .replace(/\\\{\\\*\\\}/g, "{*}")
+    .replace(/\{\\\*\}/g, "{*}")
+    .replace(/\\\{code/g, "{code")
+    .replace(/\\\{noformat/g, "{noformat")
+    .replace(/\\\}/g, "}");
+
+  return normalizedWikiMarkup
+    .replace(
+      /\\?\{code(?::([\w-]+))?\\?\}\n?([\s\S]*?)\\?\{code\\?\}/g,
+      (_match, language, code) => {
+        return fencedCode(language || "", String(code).trim());
+      },
+    )
+    .replace(/\\?\{noformat\\?\}\n?([\s\S]*?)\\?\{noformat\\?\}/g, (_match, code) => {
+      return fencedCode("", String(code).trim());
+    })
+    .replace(/\[([^\]|\n]+)\|((?:https?:\/\/|\/)[^\]\\\s]+)\\?\]/g, (_match, text, url) => {
+      return `[${String(text)}](${String(url).replace(/\\([()])/g, "$1")})`;
+    })
+    .replace(/\{\*\}([\s\S]*?)\{\*\}/g, "**$1**");
+}
+
 export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
   const imageReplacer = opts.imageReplacer;
   const linkRewriter = opts.linkRewriter;
@@ -178,7 +239,8 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
 
   const addInlineConfluenceRules = (service: TurndownService): void => {
     service.addRule("jira-issue", {
-      filter: (node) => node.nodeName === "SPAN" && (node as HTMLElement).classList?.contains("jira-issue"),
+      filter: (node) =>
+        node.nodeName === "SPAN" && (node as HTMLElement).classList?.contains("jira-issue"),
       replacement: (_content, node) => {
         const el = node as HTMLElement;
         const key = el.getAttribute("data-jira-key") || "";
@@ -212,6 +274,17 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
   addInlineConfluenceRules(cellTd);
 
   td.remove(["script", "style", "button"]);
+
+  td.addRule("attachments-macro", {
+    filter: (node) => {
+      const macroName = node.getAttribute("data-macro-name") || node.getAttribute("ac:name") || "";
+      if (macroName === "attachments") return true;
+      return !!node.closest?.(
+        '[data-macro-name="attachments"], ac\\:structured-macro[ac\\:name="attachments"]',
+      );
+    },
+    replacement: () => "",
+  });
 
   td.addRule("toc-macro", {
     filter: (node) =>
@@ -284,10 +357,41 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
 
   td.addRule("custom-table", {
     filter: "table",
-    replacement: (_content, node) => tableToGfm(node as HTMLTableElement, (el) => cellToMd(el, cellTd)),
+    replacement: (_content, node) =>
+      tableToGfm(node as HTMLTableElement, (el) => cellToMd(el, cellTd)),
   });
 
   addInlineConfluenceRules(td);
+
+  td.addRule("fabric-code-block", {
+    filter: isFabricCodeBlock,
+    replacement: (_content, node) => {
+      const codeEl = node as HTMLElement;
+      const lang = getFabricCodeLanguage(codeEl);
+      const code = codeEl.textContent || "";
+      return fencedCode(lang, code);
+    },
+  });
+
+  td.addRule("plain-pre-code-block", {
+    filter: (node) => {
+      if (node.nodeName !== "PRE") return false;
+      const el = node as HTMLElement;
+      return !el.closest(".code.panel");
+    },
+    replacement: (_content, node) => {
+      const pre = node as HTMLElement;
+      const codeEl = pre.querySelector("code") ?? pre;
+      const lang = getSyntaxHighlighterLanguage(pre) || getSyntaxHighlighterLanguage(codeEl);
+      return fencedCode(lang, codeEl.textContent || "");
+    },
+  });
+
+  td.addRule("fabric-code-block-wrapper", {
+    filter: (node) =>
+      node.nodeName === "SPAN" && (node as HTMLElement).hasAttribute("data-ds--code--code-block"),
+    replacement: (content) => content,
+  });
 
   td.addRule("confluence-code-block", {
     filter: (node) =>
@@ -297,22 +401,36 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
     replacement: (_content, node) => {
       const el = node as HTMLElement;
       const codeEl = el.querySelector("code");
-      if (!codeEl) return "";
+      const preEl = el.querySelector("pre");
+      if (!codeEl && !preEl) return "";
 
-      let lang = "";
-      const codeClass = codeEl.getAttribute("class") || "";
-      const langMatch = codeClass.match(/(?:language-)?(\w+)/);
-      if (langMatch && !["code", "panel", "pdl"].includes(langMatch[1])) lang = langMatch[1];
+      let lang = codeEl ? getSyntaxHighlighterLanguage(codeEl) : "";
 
-      const preEl = codeEl.closest("pre");
       if (!lang && preEl) {
-        const params = preEl.getAttribute("data-syntaxhighlighter-params") || "";
-        const brushMatch = params.match(/brush:\s*(\w+)/);
-        if (brushMatch) lang = brushMatch[1];
+        lang = getSyntaxHighlighterLanguage(preEl);
       }
 
-      const code = codeEl.textContent || "";
-      return `\n\n\`\`\`${lang}\n${code}\n\`\`\`\n\n`;
+      const code = (codeEl ?? preEl)?.textContent || "";
+      return fencedCode(lang, code);
+    },
+  });
+
+  td.addRule("confluence-code-macro", {
+    filter: (node) => {
+      const nodeName = node.nodeName.toLowerCase();
+      if (nodeName !== "ac:structured-macro") return false;
+      const el = node as HTMLElement;
+      return (el.getAttribute("ac:name") || el.getAttribute("name")) === "code";
+    },
+    replacement: (_content, node) => {
+      const el = node as HTMLElement;
+      const language =
+        el
+          .querySelector('ac\\:parameter[ac\\:name="language"], ac\\:parameter[name="language"]')
+          ?.textContent?.trim()
+          .toLowerCase() ?? "";
+      const body = el.querySelector("ac\\:plain-text-body, ac\\:rich-text-body");
+      return fencedCode(language, body?.textContent || el.textContent || "");
     },
   });
 
@@ -325,9 +443,12 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
       if (!items.length) return "";
       const lines = Array.from(items).map((item) => {
         const isChecked =
-          item.getAttribute("data-status") === "checked" || item.querySelector("input[checked]") !== null;
+          item.getAttribute("data-status") === "checked" ||
+          item.querySelector("input[checked]") !== null;
         const body =
-          item.querySelector(".task-list-body")?.textContent?.trim() || item.textContent?.trim() || "";
+          item.querySelector(".task-list-body")?.textContent?.trim() ||
+          item.textContent?.trim() ||
+          "";
         return `- ${isChecked ? "[x]" : "[ ]"} ${body}`;
       });
       return `\n\n${lines.join("\n")}\n\n`;
@@ -365,7 +486,8 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
       const lines = images
         .map((image) => {
           const attachment = image.querySelector("ri\\:attachment");
-          const filename = attachment?.getAttribute("ri:filename") || attachment?.getAttribute("filename") || "";
+          const filename =
+            attachment?.getAttribute("ri:filename") || attachment?.getAttribute("filename") || "";
           const src =
             image.getAttribute("src") ||
             image.getAttribute("data-image-src") ||
@@ -398,7 +520,8 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
         el.getAttribute("title") ||
         el.textContent?.trim() ||
         "page";
-      const pageId = el.getAttribute("ri:page-id") || el.getAttribute("page-id") || el.getAttribute("id") || "";
+      const pageId =
+        el.getAttribute("ri:page-id") || el.getAttribute("page-id") || el.getAttribute("id") || "";
       const spaceKey = el.getAttribute("ri:space-key") || el.getAttribute("space-key") || "";
       const target = pageId || (spaceKey ? `${spaceKey}:${title}` : title);
       const link = target ? `[${title}](${target})` : title;
@@ -417,7 +540,8 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
     },
     replacement: (_content, node) => {
       const el = node as HTMLElement;
-      const username = el.getAttribute("data-username") || el.textContent?.trim().replace(/^@/, "") || "";
+      const username =
+        el.getAttribute("data-username") || el.textContent?.trim().replace(/^@/, "") || "";
       return username ? `@${username}` : "";
     },
   });
@@ -437,6 +561,7 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
     replacement: (content, node) => {
       const el = node as HTMLElement;
       const macroName = el.getAttribute("data-macro-name") || "unknown";
+      if (macroName === "attachments") return "";
       const body = content.trim();
       if (!body) return `[macro:${macroName}]`;
       return `[macro:${macroName}] <!-- ${body.replace(/-->/g, "]==")} -->`;
@@ -466,5 +591,5 @@ function escapeHtml(s: string): string {
 
 export function htmlToMarkdown(html: string, opts?: HtmlToMdOptions): string {
   const cleaned = preprocessConfluenceNoise(html);
-  return buildTurndown(opts).turndown(cleaned).trim();
+  return convertJiraWikiMarkup(buildTurndown(opts).turndown(cleaned)).trim();
 }

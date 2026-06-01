@@ -5,6 +5,7 @@ export interface BundleOptions {
   rootName: string;
   readme?: string;
   manifestJson?: string;
+  extraTextFiles?: Record<string, string>;
 }
 
 const ZIP_MIME_TYPE = "application/zip";
@@ -65,7 +66,11 @@ export async function bundleExtractedPages(
   const { zip, chunks } = createZip();
 
   if (opts.readme) addStringFile(zip, getZipPath(opts.rootName, "README.md"), opts.readme);
-  if (opts.manifestJson) addStringFile(zip, getZipPath(opts.rootName, "manifest.json"), opts.manifestJson);
+  if (opts.manifestJson)
+    addStringFile(zip, getZipPath(opts.rootName, "manifest.json"), opts.manifestJson);
+  for (const [path, content] of Object.entries(opts.extraTextFiles ?? {})) {
+    addStringFile(zip, getZipPath(opts.rootName, path), content);
+  }
 
   const seenBinaryHashes = new Set<string>();
 

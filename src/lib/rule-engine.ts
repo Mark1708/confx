@@ -25,7 +25,14 @@ export function applyRules(html: string, rules: ExtractionRule[]): RuleEngineRes
 
   for (const rule of rules.filter((r) => r.enabled)) {
     if (rule.type === "selector") {
-      handleNodes(safeQueryAll(doc, rule.matcher), rule, sectionMap, tables, csvEmitted, () => tableIdx++);
+      handleNodes(
+        safeQueryAll(doc, rule.matcher),
+        rule,
+        sectionMap,
+        tables,
+        csvEmitted,
+        () => tableIdx++,
+      );
     } else if (rule.type === "table") {
       const nodes = safeQueryAll(doc, rule.matcher).filter(
         (n): n is HTMLTableElement => n.tagName === "TABLE",
@@ -87,9 +94,12 @@ function handleNodes(
           node.tagName === "TABLE"
             ? (node as HTMLTableElement)
             : (node.querySelector("table") as HTMLTableElement | null);
-        if (table && !csvEmitted.has(table)) {
+        if (table && !csvEmitted.has(table) && !isConfluenceUiTable(table)) {
           emitCsv(table, sectionMap, tables, nextIdx());
           csvEmitted.add(table);
+          if (rule.options?.removeAfterCsv === true) {
+            table.remove();
+          }
         }
         break;
       }
@@ -110,6 +120,32 @@ function handleNodes(
         break;
     }
   }
+}
+
+function isConfluenceUiTable(table: HTMLTableElement): boolean {
+  const context = table.closest(
+    '[data-macro-name="attachments"], .plugin_attachments_container, #attachments, #attachment-list, .attachments-container',
+  );
+  if (context) return true;
+
+  const idAndClass = `${table.id} ${table.className}`.toLowerCase();
+  if (idAndClass.includes("attachment")) return true;
+
+  const headerText = Array.from(table.querySelectorAll("th"))
+    .map((cell) => cell.textContent?.trim() ?? "")
+    .join("|")
+    .toLowerCase();
+  const bodyText = table.textContent?.toLowerCase() ?? "";
+  const hasAttachmentHeaders =
+    (headerText.includes("файл") && headerText.includes("изменено")) ||
+    (headerText.includes("file") && headerText.includes("modified"));
+  const hasAttachmentUiText =
+    bodyText.includes("файлов еще нет") ||
+    bodyText.includes("загрузить файл") ||
+    bodyText.includes("drop files to attach") ||
+    bodyText.includes("upload file");
+
+  return hasAttachmentHeaders && hasAttachmentUiText;
 }
 
 function emitCsv(
@@ -156,11 +192,26 @@ function collectSection(heading: Element): Element[] {
   return out;
 }
 
+export const MD_ONLY_PRESET: RulePreset = {
+  id: "md-only",
+  name: "MD-only",
+  description:
+    "Текстовый контент и таблицы остаются в Markdown. CSV, изображения и файлы не генерируются.",
+  rules: [],
+};
+
+export const MD_ATTACHMENTS_PRESET: RulePreset = {
+  id: "md-attachments",
+  name: "MD with attachments",
+  description: "Экспортирует текстовый контент, Markdown-таблицы, изображения и файлы вложений.",
+  rules: [],
+};
+
 export const GENERIC_PRESET: RulePreset = {
+  ...MD_ONLY_PRESET,
   id: "generic",
   name: "Generic (только MD)",
   description: "Все таблицы и контент остаются в Markdown. CSV не генерируются.",
-  rules: [],
 };
 
 export const ALL_TABLES_CSV_PRESET: RulePreset = {
@@ -198,7 +249,8 @@ export const FULL_PAGE_PRESET: RulePreset = {
 export const TABLES_ONLY_PRESET: RulePreset = {
   id: "tables-only",
   name: "Только таблицы",
-  description: "Экспортирует все таблицы в CSV и оставляет Markdown с минимальным сопутствующим контентом.",
+  description:
+    "Экспортирует только реальные пользовательские таблицы в CSV без Markdown-копий и UI-таблиц Confluence.",
   rules: [
     {
       id: "tables-only-all-csv",
@@ -207,6 +259,7 @@ export const TABLES_ONLY_PRESET: RulePreset = {
       matcher: "table.confluenceTable, div.table-wrap > table, table",
       action: "to-csv",
       enabled: true,
+      options: { removeAfterCsv: true },
     },
     {
       id: "tables-only-content-skip",
@@ -243,13 +296,16 @@ export const API_DOC_PRESET: RulePreset = {
   ],
 };
 
-export const PRESETS: RulePreset[] = [
-  GENERIC_PRESET,
-  ALL_TABLES_CSV_PRESET,
-  FULL_PAGE_PRESET,
-  TABLES_ONLY_PRESET,
-  API_DOC_PRESET,
-];
+export const DEFAULT_PRESET_ID = MD_ATTACHMENTS_PRESET.id;
+
+export const PRESETS: RulePreset[] = [MD_ATTACHMENTS_PRESET, MD_ONLY_PRESET, TABLES_ONLY_PRESET];
+
+const LEGACY_PRESET_ALIASES: Readonly<Record<string, RulePreset>> = {
+  generic: MD_ONLY_PRESET,
+  "all-csv": MD_ATTACHMENTS_PRESET,
+  "full-page": MD_ATTACHMENTS_PRESET,
+  "api-doc": MD_ATTACHMENTS_PRESET,
+};
 
 interface RulesExportPayload {
   version: 1;
@@ -348,5 +404,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function getPreset(id: string): RulePreset {
-  return PRESETS.find((p) => p.id === id) ?? GENERIC_PRESET;
+  return PRESETS.find((p) => p.id === id) ?? LEGACY_PRESET_ALIASES[id] ?? MD_ATTACHMENTS_PRESET;
 }

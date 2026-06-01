@@ -22,8 +22,13 @@ export class BrowserApi {
   static onMessage(
     handler: (msg: unknown, sender: chrome.runtime.MessageSender) => boolean | void,
   ): () => void {
-    chrome.runtime.onMessage.addListener(handler as Parameters<typeof chrome.runtime.onMessage.addListener>[0]);
-    return () => chrome.runtime.onMessage.removeListener(handler as Parameters<typeof chrome.runtime.onMessage.removeListener>[0]);
+    chrome.runtime.onMessage.addListener(
+      handler as Parameters<typeof chrome.runtime.onMessage.addListener>[0],
+    );
+    return () =>
+      chrome.runtime.onMessage.removeListener(
+        handler as Parameters<typeof chrome.runtime.onMessage.removeListener>[0],
+      );
   }
 
   static onInstalled(handler: () => void | Promise<void>): void {
@@ -40,7 +45,10 @@ export class BrowserApi {
     return chrome.tabs.create(properties);
   }
 
-  static updateTab(tabId: number, updateProperties: chrome.tabs.UpdateProperties): Promise<chrome.tabs.Tab> {
+  static updateTab(
+    tabId: number,
+    updateProperties: chrome.tabs.UpdateProperties,
+  ): Promise<chrome.tabs.Tab> {
     return chrome.tabs.update(tabId, updateProperties);
   }
 
@@ -49,7 +57,9 @@ export class BrowserApi {
     return () => chrome.tabs.onActivated.removeListener(handler);
   }
 
-  static onTabUpdated(handler: (tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => void): () => void {
+  static onTabUpdated(
+    handler: (tabId: number, changeInfo: chrome.tabs.TabChangeInfo) => void,
+  ): () => void {
     chrome.tabs.onUpdated.addListener(handler);
     return () => chrome.tabs.onUpdated.removeListener(handler);
   }
@@ -64,7 +74,10 @@ export class BrowserApi {
     return chrome.windows.getCurrent();
   }
 
-  static updateWindow(windowId: number, updateInfo: chrome.windows.UpdateInfo): Promise<chrome.windows.Window> {
+  static updateWindow(
+    windowId: number,
+    updateInfo: chrome.windows.UpdateInfo,
+  ): Promise<chrome.windows.Window> {
     return chrome.windows.update(windowId, updateInfo);
   }
 
@@ -113,7 +126,9 @@ export class BrowserApi {
 
   // ─── Scripting ────────────────────────────────────────────────
 
-  static executeScript(injection: chrome.scripting.ScriptInjection<any[], any>): Promise<chrome.scripting.InjectionResult[]> {
+  static executeScript(
+    injection: chrome.scripting.ScriptInjection<any[], any>,
+  ): Promise<chrome.scripting.InjectionResult[]> {
     return chrome.scripting.executeScript(injection);
   }
 }

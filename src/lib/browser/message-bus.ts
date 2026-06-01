@@ -17,7 +17,10 @@ export class MessageBus {
 
   static on<K extends ExtensionMessage["kind"]>(
     kind: K,
-    handler: (msg: Extract<ExtensionMessage, { kind: K }>, sender: chrome.runtime.MessageSender) => unknown,
+    handler: (
+      msg: Extract<ExtensionMessage, { kind: K }>,
+      sender: chrome.runtime.MessageSender,
+    ) => unknown,
   ): () => void {
     if (!MessageBus.listenerActive) {
       MessageBus.listenerActive = true;
@@ -27,12 +30,10 @@ export class MessageBus {
           if (msgKind && MessageBus.handlers.has(msgKind)) {
             const result = MessageBus.handlers.get(msgKind)!(msg, sender);
             if (result instanceof Promise) {
-              result
-                .then(sendResponse)
-                .catch((err) => {
-                  console.error(`[MessageBus] handler for "${msgKind}" failed`, err);
-                  sendResponse({ ok: false, error: String(err) });
-                });
+              result.then(sendResponse).catch((err) => {
+                console.error(`[MessageBus] handler for "${msgKind}" failed`, err);
+                sendResponse({ ok: false, error: String(err) });
+              });
               return true; // keep channel open for async response
             }
             sendResponse(result);

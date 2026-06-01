@@ -155,7 +155,9 @@ function parseConfig(value: unknown): ExportJobConfig | null {
   };
 }
 
-function parseOptionalSpaceOptions(value: unknown): ExportJobConfig["spaceOptions"] | undefined | null {
+function parseOptionalSpaceOptions(
+  value: unknown,
+): ExportJobConfig["spaceOptions"] | undefined | null {
   if (value === undefined) return undefined;
   if (!isRecord(value)) return null;
 
@@ -170,7 +172,12 @@ function parseOptionalSpaceOptions(value: unknown): ExportJobConfig["spaceOption
 }
 
 function parseProgress(value: unknown): ExportJobState["progress"] | null {
-  if (!isRecord(value) || !isNumber(value.current) || !isNumber(value.total) || !isString(value.message)) {
+  if (
+    !isRecord(value) ||
+    !isNumber(value.current) ||
+    !isNumber(value.total) ||
+    !isString(value.message)
+  ) {
     return null;
   }
 
@@ -201,7 +208,8 @@ function parseOptionalPageMeta(value: unknown): ConfluencePageMeta | undefined |
   const ancestors = parseOptionalAncestors(value.ancestors);
   const attachmentCount = parseOptionalNumber(value.attachmentCount);
 
-  if (version === null || labels === null || ancestors === null || attachmentCount === null) return null;
+  if (version === null || labels === null || ancestors === null || attachmentCount === null)
+    return null;
 
   return {
     id: value.id,
@@ -216,7 +224,9 @@ function parseOptionalPageMeta(value: unknown): ConfluencePageMeta | undefined |
   };
 }
 
-function parseOptionalAncestors(value: unknown): ConfluencePageMeta["ancestors"] | undefined | null {
+function parseOptionalAncestors(
+  value: unknown,
+): ConfluencePageMeta["ancestors"] | undefined | null {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) return null;
 
@@ -231,7 +241,9 @@ function parseAncestor(value: unknown): { id: string; title: string } | null {
   return { id: value.id, title: value.title };
 }
 
-function isAncestor(value: { id: string; title: string } | null): value is { id: string; title: string } {
+function isAncestor(
+  value: { id: string; title: string } | null,
+): value is { id: string; title: string } {
   return value !== null;
 }
 

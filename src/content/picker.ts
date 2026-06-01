@@ -1,5 +1,7 @@
+import { createTranslator } from "@/i18n";
 import { BrowserApi } from "@/lib/browser/browser-api";
 import type { ConfluencePageMeta, PickerResult } from "@/types";
+import { loadContentTranslator } from "./i18n";
 import pickerCss from "./picker.css?inline";
 
 let overlay: HTMLDivElement | null = null;
@@ -9,6 +11,7 @@ let styleEl: HTMLStyleElement | null = null;
 let currentTarget: Element | null = null;
 let depthOffset = 0;
 let active = false;
+let pickerT = createTranslator();
 
 const SNAP_SELECTORS = [
   "h1, h2, h3",
@@ -80,10 +83,10 @@ function describe(el: Element): { selector: string; stats: string } {
   const textLen = (el.textContent ?? "").replace(/\s+/g, " ").trim().length;
   const words = Math.round(textLen / 5.5);
   const parts: string[] = [];
-  if (tables) parts.push(`${tables} табл.`);
-  if (images) parts.push(`${images} карт.`);
-  if (words) parts.push(`~${words} слов`);
-  return { selector, stats: parts.join(" · ") || "пусто" };
+  if (tables) parts.push(pickerT("picker.overlay.tablesShort", { count: tables }));
+  if (images) parts.push(pickerT("picker.overlay.imagesShort", { count: images }));
+  if (words) parts.push(pickerT("picker.overlay.wordsApprox", { count: words }));
+  return { selector, stats: parts.join(" · ") || pickerT("picker.overlay.empty") };
 }
 
 function updateHighlight(el: Element): void {
@@ -98,7 +101,7 @@ function updateHighlight(el: Element): void {
   tooltip.innerHTML = `
     <div class="cx-selector">${escapeHtml(selector)}</div>
     <div class="cx-stats">${escapeHtml(stats)}</div>
-    <div class="cx-hint">[ / ] уровень · Esc отмена · клик — выбрать</div>
+    <div class="cx-hint">${escapeHtml(pickerT("picker.overlay.hint"))}</div>
   `;
   const ttTop = rect.top > 40 ? rect.top - 36 : rect.bottom + 8;
   tooltip.style.left = `${Math.min(rect.left, window.innerWidth - 380)}px`;
@@ -116,11 +119,20 @@ function onMove(e: MouseEvent): void {
 
 function onClick(e: MouseEvent): void {
   if (!active) return;
-  if (!currentTarget) return;
   e.preventDefault();
   e.stopImmediatePropagation();
-  sendPickedBlock(currentTarget);
+
+  const target = currentTarget ?? targetFromClick(e);
+  if (!target) return;
+
+  sendPickedBlock(target);
   stopPicker();
+}
+
+function targetFromClick(e: MouseEvent): Element | null {
+  const target = document.elementFromPoint(e.clientX, e.clientY);
+  if (!target || target === overlay || target === tooltip) return null;
+  return liftByDepth(snapToMeaningful(target), depthOffset);
 }
 
 function onKeydown(e: KeyboardEvent): void {
@@ -141,8 +153,7 @@ function onKeydown(e: KeyboardEvent): void {
 }
 
 function currentPageMeta(): ConfluencePageMeta {
-  const pageId =
-    document.querySelector('meta[name="ajs-page-id"]')?.getAttribute("content") ?? "";
+  const pageId = document.querySelector('meta[name="ajs-page-id"]')?.getAttribute("content") ?? "";
   const spaceKey =
     document.querySelector('meta[name="ajs-space-key"]')?.getAttribute("content") ?? "";
   const title =
@@ -164,11 +175,11 @@ function currentPageMeta(): ConfluencePageMeta {
 function sendPickedBlock(el: Element): void {
   const clone = el.cloneNode(true) as HTMLElement;
   // strip picker UI from the clone if any slipped in
-  clone.querySelectorAll("#cx-picker-overlay, #cx-picker-tooltip, #cx-picker-highlight").forEach(
-    (n) => {
+  clone
+    .querySelectorAll("#cx-picker-overlay, #cx-picker-tooltip, #cx-picker-highlight")
+    .forEach((n) => {
       n.remove();
-    },
-  );
+    });
   const payload: PickerResult = {
     kind: "picker-result",
     html: clone.outerHTML,
@@ -185,10 +196,16 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+async function refreshPickerTranslations(): Promise<void> {
+  pickerT = await loadContentTranslator();
+  if (active && currentTarget) updateHighlight(currentTarget);
+}
+
 export function startPicker(): void {
   if (active) return;
   active = true;
   depthOffset = 0;
+  void refreshPickerTranslations();
   ensureOverlay();
   document.documentElement.classList.add("cx-picker-active");
   document.addEventListener("mousemove", onMove, true);

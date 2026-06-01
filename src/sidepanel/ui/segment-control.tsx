@@ -41,7 +41,8 @@ export interface SegmentControlItem<TValue extends string> {
 }
 
 export interface SegmentControlProps<TValue extends string>
-  extends Omit<React.HTMLAttributes<HTMLDivElement>, "onChange">,
+  extends
+    Omit<React.HTMLAttributes<HTMLDivElement>, "onChange">,
     VariantProps<typeof segmentControlVariants> {
   items: readonly SegmentControlItem<TValue>[];
   value: TValue;
@@ -73,7 +74,8 @@ export function SegmentControl<TValue extends string>({
         const isActive = item.value === value;
 
         const labelTitle = typeof item.label === "string" ? item.label : undefined;
-        const labelClassName = item.icon && size === "sm" ? "sr-only panel:not-sr-only panel:truncate" : "truncate";
+        const labelClassName =
+          item.icon && size === "sm" ? "sr-only panel:not-sr-only panel:truncate" : "truncate";
 
         return (
           <button

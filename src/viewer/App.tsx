@@ -2,13 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { Copy, Download, Loader2 } from "lucide-react";
 import { marked } from "marked";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ConfluenceApi } from "@/lib/confluence-api";
+import { createConfluenceApi } from "@/lib/create-api";
 import { extractFromHtml } from "@/lib/extractor";
 import { ImageDedup } from "@/lib/image-fetcher";
 import { getPreset } from "@/lib/rule-engine";
 import { loadSettings } from "@/lib/settings";
 import { slugify } from "@/lib/table-to-csv";
 import { useFontSize } from "@/sidepanel/hooks/useFontSize";
+import { useI18n } from "@/sidepanel/hooks/useI18n";
 import { useTheme } from "@/sidepanel/hooks/useTheme";
 
 type ViewMode = "formatted" | "raw";
@@ -31,7 +32,7 @@ function readParams(): ViewerParams | null {
 async function fetchMarkdown(params: ViewerParams): Promise<{ markdown: string; title: string }> {
   const settings = await loadSettings();
   const preset = getPreset(settings.activePresetId);
-  const api = new ConfluenceApi(params.host);
+  const api = await createConfluenceApi(params.host);
 
   const raw = await api.getPage(params.pageId, [
     "body.view",
@@ -55,7 +56,9 @@ async function fetchMarkdown(params: ViewerParams): Promise<{ markdown: string; 
   return { markdown: extracted.markdown, title: meta.title };
 }
 
-async function fetchViewerMarkdown(params: ViewerParams | null): Promise<{ markdown: string; title: string }> {
+async function fetchViewerMarkdown(
+  params: ViewerParams | null,
+): Promise<{ markdown: string; title: string }> {
   if (!params) throw new Error("Missing viewer parameters");
   return fetchMarkdown(params);
 }
@@ -63,6 +66,7 @@ async function fetchViewerMarkdown(params: ViewerParams | null): Promise<{ markd
 export function App() {
   useTheme();
   useFontSize();
+  const { locale, t } = useI18n();
 
   const params = useMemo(() => readParams(), []);
   const [mode, setMode] = useState<ViewMode>("formatted");
@@ -76,16 +80,21 @@ export function App() {
     enabled: !!params,
   });
 
-  const displayTitle = query.data?.title ?? params?.title ?? "Просмотр Markdown";
+  const displayTitle = query.data?.title ?? params?.title ?? t("viewer.defaultTitle");
 
   useEffect(() => {
+    document.documentElement.lang = locale;
     document.title = displayTitle;
-  }, [displayTitle]);
+  }, [displayTitle, locale]);
 
   const rendered = useMemo(() => {
     if (!query.data?.markdown) return "";
     try {
-      return marked.parse(query.data.markdown, { async: false, breaks: false, gfm: true }) as string;
+      return marked.parse(query.data.markdown, {
+        async: false,
+        breaks: false,
+        gfm: true,
+      }) as string;
     } catch (err) {
       console.error("[viewer] marked parse error", err);
       return "";
@@ -116,10 +125,10 @@ export function App() {
     if (!query.data?.markdown) return;
     try {
       await navigator.clipboard.writeText(query.data.markdown);
-      showFlash("Скопировано в буфер обмена");
+      showFlash(t("viewer.copied"));
     } catch (err) {
       console.error("[viewer] clipboard failed", err);
-      showFlash("Не удалось скопировать");
+      showFlash(t("viewer.copyFailed"));
     }
   }
 
@@ -135,15 +144,13 @@ export function App() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 30_000);
-    showFlash("Файл скачивается");
+    showFlash(t("viewer.downloading"));
   }
 
   if (!params) {
     return (
       <div className="cx-viewer">
-        <div className="cx-status error">
-          В URL не переданы параметры <code>host</code> и <code>pageId</code>.
-        </div>
+        <div className="cx-status error">{t("viewer.missingParams")}</div>
       </div>
     );
   }
@@ -157,7 +164,7 @@ export function App() {
           </div>
           <div className="cx-viewer-heading">
             <div className="cx-viewer-name">ConfX</div>
-            <div className="cx-viewer-kicker">Просмотр Markdown</div>
+            <div className="cx-viewer-kicker">{t("viewer.kicker")}</div>
           </div>
         </div>
 
@@ -168,7 +175,7 @@ export function App() {
         </div>
 
         <div className="cx-viewer-controls">
-          <div className="cx-toggle" role="tablist" aria-label="Режим отображения">
+          <div className="cx-toggle" role="tablist" aria-label={t("viewer.displayMode")}>
             <button
               type="button"
               role="tab"
@@ -176,7 +183,7 @@ export function App() {
               className={mode === "formatted" ? "active" : ""}
               onClick={() => setMode("formatted")}
             >
-              Форматированный
+              {t("viewer.formatted")}
             </button>
             <button
               type="button"
@@ -185,7 +192,7 @@ export function App() {
               className={mode === "raw" ? "active" : ""}
               onClick={() => setMode("raw")}
             >
-              Исходный
+              {t("viewer.raw")}
             </button>
           </div>
 
@@ -194,10 +201,10 @@ export function App() {
             className="cx-action"
             onClick={handleCopy}
             disabled={!query.data?.markdown}
-            title="Скопировать markdown в буфер обмена"
+            title={t("viewer.copyTitle")}
           >
             <Copy />
-            <span>Скопировать</span>
+            <span>{t("viewer.copy")}</span>
           </button>
 
           <button
@@ -205,10 +212,10 @@ export function App() {
             className="cx-action primary"
             onClick={handleDownload}
             disabled={!query.data?.markdown}
-            title="Скачать как .md"
+            title={t("viewer.downloadTitle")}
           >
             <Download />
-            <span>Скачать</span>
+            <span>{t("viewer.download")}</span>
           </button>
         </div>
       </header>
@@ -216,12 +223,12 @@ export function App() {
       <main className="cx-viewer-body">
         {query.isLoading && (
           <div className="cx-status">
-            <Loader2 className="inline h-4 w-4 animate-spin" /> Загружаю страницу…
+            <Loader2 className="inline h-4 w-4 animate-spin" /> {t("viewer.loading")}
           </div>
         )}
         {query.isError && (
           <div className="cx-status error">
-            Не удалось загрузить страницу: {(query.error as Error).message}
+            {t("viewer.loadError", { message: (query.error as Error).message })}
           </div>
         )}
         {query.data && mode === "formatted" && <div ref={setRenderedNode} className="cx-prose" />}

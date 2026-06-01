@@ -1,6 +1,7 @@
 import { Bell, CircleDot, Crosshair, FileText, FolderTree, Globe, Settings } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { storage } from "@/lib/browser/storage";
+import type { OpenConfxRequest, PickerResult } from "@/types";
 import { JiraPanel } from "./components/JiraPanel";
 import { PagePanel } from "./components/PagePanel";
 import { PickerPanel } from "./components/PickerPanel";
@@ -11,6 +12,7 @@ import { ThemeSelect } from "./components/ThemeSelect";
 import { WatchPanel } from "./components/WatchPanel";
 import { useCurrentTab } from "./hooks/useCurrentTab";
 import { useFontSize } from "./hooks/useFontSize";
+import { useI18n } from "./hooks/useI18n";
 import { useSubscriptions } from "./hooks/useSubscriptions";
 import { useTheme } from "./hooks/useTheme";
 import { Button } from "./ui/button";
@@ -21,11 +23,6 @@ type PrimaryGroup = "extract" | "tools";
 type PanelId = "page" | "space" | "jira" | "subtree" | "picker" | "watch" | "settings";
 
 type PanelNavItem = SegmentControlItem<PanelId>;
-
-const primaryItems: readonly SegmentControlItem<PrimaryGroup>[] = [
-  { value: "extract", label: "Извлечение" },
-  { value: "tools", label: "Инструменты" },
-];
 
 const defaultPanelByGroup: Record<PrimaryGroup, PanelId> = {
   extract: "page",
@@ -51,6 +48,7 @@ export function App() {
   const tab = useCurrentTab();
   useFontSize();
   useTheme();
+  const { locale, t } = useI18n();
   const { subscriptions } = useSubscriptions();
   const [activeGroup, setActiveGroup] = useState<PrimaryGroup>("extract");
   const [activePanel, setActivePanel] = useState<PanelId>("page");
@@ -62,27 +60,54 @@ export function App() {
     return acc + d.added + d.removed + d.changed + d.moved;
   }, 0);
   const headerSubtitle = tab.isJira
-    ? tab.issueKey ?? tab.host ?? "Откройте Jira-тикет"
-    : tab.host ?? "Откройте Confluence-страницу";
+    ? (tab.issueKey ?? tab.host ?? t("sidepanel.header.openJiraTicket"))
+    : (tab.host ?? t("sidepanel.header.openConfluencePage"));
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    document.title = t("common.appName");
+  }, [locale, t]);
+
+  const primaryItems = useMemo<readonly SegmentControlItem<PrimaryGroup>[]>(
+    () => [
+      { value: "extract", label: t("sidepanel.groups.extract") },
+      { value: "tools", label: t("sidepanel.groups.tools") },
+    ],
+    [t],
+  );
 
   const extractItems = useMemo<readonly PanelNavItem[]>(
     () => [
-      { value: "page", label: "Страница", icon: <FileText className="h-3 w-3" /> },
-      { value: "space", label: "Пространство", icon: <Globe className="h-3 w-3" /> },
+      { value: "page", label: t("sidepanel.tabs.page"), icon: <FileText className="h-3 w-3" /> },
+      { value: "space", label: t("sidepanel.tabs.space"), icon: <Globe className="h-3 w-3" /> },
       ...(tab.isJira
-        ? [{ value: "jira" as const, label: "Jira", icon: <CircleDot className="h-3 w-3" /> }]
+        ? [
+            {
+              value: "jira" as const,
+              label: t("sidepanel.tabs.jira"),
+              icon: <CircleDot className="h-3 w-3" />,
+            },
+          ]
         : []),
-      { value: "subtree", label: "Дерево", icon: <FolderTree className="h-3 w-3" /> },
+      {
+        value: "subtree",
+        label: t("sidepanel.tabs.subtree"),
+        icon: <FolderTree className="h-3 w-3" />,
+      },
     ],
-    [tab.isJira],
+    [t, tab.isJira],
   );
 
   const toolsItems = useMemo<readonly PanelNavItem[]>(
     () => [
-      { value: "picker", label: "Пикер", icon: <Crosshair className="h-3 w-3" /> },
+      {
+        value: "picker",
+        label: t("sidepanel.tabs.picker"),
+        icon: <Crosshair className="h-3 w-3" />,
+      },
       {
         value: "watch",
-        label: "Слежка",
+        label: t("sidepanel.tabs.watch"),
         icon: <Bell className="h-3 w-3" />,
         badge:
           pendingChanges > 0 ? (
@@ -92,7 +117,7 @@ export function App() {
           ) : null,
       },
     ],
-    [pendingChanges],
+    [pendingChanges, t],
   );
 
   const visibleItems = activeGroup === "extract" ? extractItems : toolsItems;
@@ -103,31 +128,58 @@ export function App() {
   }, [activeGroup, activePanel, visibleItems]);
 
   useEffect(() => {
+    const applyOpenIntent = (intent: OpenConfxRequest): void => {
+      setActiveGroup("extract");
+      setActivePanel(intent.source === "jira" ? "jira" : "page");
+      void storage.session.remove(OPEN_CONFX_INTENT_KEY);
+    };
+
+    const applyPickerResult = (_result: PickerResult): void => {
+      setActiveGroup("tools");
+      setActivePanel("picker");
+    };
+
+    const handleStorageChanged = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string,
+    ): void => {
+      if (areaName !== "session") return;
+
+      const result = changes[PICKER_RESULT_KEY]?.newValue;
+      if (isPickerResult(result)) {
+        applyPickerResult(result);
+        return;
+      }
+
+      const intent = changes[OPEN_CONFX_INTENT_KEY]?.newValue;
+      if (isOpenConfxRequest(intent)) {
+        applyOpenIntent(intent);
+      }
+    };
+
     storage.session
       .get([PICKER_RESULT_KEY, OPEN_CONFX_INTENT_KEY])
       .then((stored) => {
-        const result = stored[PICKER_RESULT_KEY] as { kind?: string } | undefined;
-        const intent = stored[OPEN_CONFX_INTENT_KEY] as
-          | { kind?: string; source?: string }
-          | undefined;
+        const result = stored[PICKER_RESULT_KEY];
+        const intent = stored[OPEN_CONFX_INTENT_KEY];
 
-        if (result?.kind === "picker-result") {
-          setActiveGroup("tools");
-          setActivePanel("picker");
+        if (isPickerResult(result)) {
+          applyPickerResult(result);
           return;
         }
 
-        if (intent?.kind === "open-confx") {
-          setActiveGroup("extract");
-          setActivePanel(intent.source === "jira" ? "jira" : "page");
-          void storage.session.remove(OPEN_CONFX_INTENT_KEY);
+        if (isOpenConfxRequest(intent)) {
+          applyOpenIntent(intent);
         }
       })
       .catch((error) => console.warn("[cx] startup intent recovery failed", error));
+
+    chrome.storage.onChanged.addListener(handleStorageChanged);
+    return () => chrome.storage.onChanged.removeListener(handleStorageChanged);
   }, []);
 
   useEffect(() => {
-    const nextContextKey = `${tab.url ?? ""}:${tab.isJira ? tab.issueKey ?? "jira" : tab.pageId ?? ""}`;
+    const nextContextKey = `${tab.url ?? ""}:${tab.isJira ? (tab.issueKey ?? "jira") : (tab.pageId ?? "")}`;
     if (!nextContextKey || nextContextKey === autoContextKey) return;
 
     setAutoContextKey(nextContextKey);
@@ -165,7 +217,7 @@ export function App() {
           variant={activePanel === "settings" ? "secondary" : "ghost"}
           size="icon"
           className="h-7 w-7 shrink-0"
-          aria-label="Настройки"
+          aria-label={t("sidepanel.header.settings")}
           onClick={() => setActivePanel("settings")}
         >
           <Settings className="h-3.5 w-3.5" />
@@ -174,14 +226,14 @@ export function App() {
 
       <div className="shrink-0 min-w-0 space-y-2 border-b bg-background px-2 py-2 wide-panel:px-3">
         <SegmentControl
-          ariaLabel="Основной раздел"
+          ariaLabel={t("sidepanel.header.primarySection")}
           items={primaryItems}
           value={activeGroup}
           onValueChange={handleGroupChange}
           size="default"
         />
         <SegmentControl
-          ariaLabel="Панель раздела"
+          ariaLabel={t("sidepanel.header.sectionPanel")}
           items={visibleItems}
           value={activePanel === "settings" ? defaultPanelByGroup[activeGroup] : activePanel}
           onValueChange={setActivePanel}
@@ -192,6 +244,16 @@ export function App() {
       <main className="min-h-0 flex-1 overflow-hidden">{renderPanel(activePanel, tab)}</main>
     </div>
   );
+}
+
+function isPickerResult(value: unknown): value is PickerResult {
+  if (!value || typeof value !== "object") return false;
+  return (value as { kind?: unknown }).kind === "picker-result";
+}
+
+function isOpenConfxRequest(value: unknown): value is OpenConfxRequest {
+  if (!value || typeof value !== "object") return false;
+  return (value as { kind?: unknown }).kind === "open-confx";
 }
 
 function renderPanel(activePanel: PanelId, tab: ReturnType<typeof useCurrentTab>): ReactNode {

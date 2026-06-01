@@ -1,6 +1,8 @@
-import { useCallback, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Subscription, SubscriptionDiff, PageSnapshot } from "@/lib/subscriptions";
+import { useCallback, useState } from "react";
+import { createTranslator } from "@/i18n";
+import { loadSettings } from "@/lib/settings";
+import type { PageSnapshot, Subscription, SubscriptionDiff } from "@/lib/subscriptions";
 import type { SubscriptionScope } from "@/types";
 import {
   acceptChanges,
@@ -59,7 +61,11 @@ export interface CheckJobState {
   error?: string;
 }
 
-const INITIAL_CHECK: CheckJobState = { running: false, message: "", visited: 0 };
+const INITIAL_CHECK: CheckJobState = {
+  running: false,
+  message: "",
+  visited: 0,
+};
 
 export function useCheckSubscription() {
   const qc = useQueryClient();
@@ -67,15 +73,26 @@ export function useCheckSubscription() {
 
   const run = useCallback(
     async (sub: Subscription) => {
-      setState({ ...INITIAL_CHECK, running: true, message: "Обход…" });
+      const settings = await loadSettings();
+      const t = createTranslator(settings.locale);
+
+      setState({
+        ...INITIAL_CHECK,
+        running: true,
+        message: t("watchProgress.walking"),
+      });
       try {
         const result = await checkSubscription(sub.id, {
           onProgress: (visited, title) =>
-            setState((s) => ({ ...s, visited, message: `Проверка: ${title}` })),
+            setState((s) => ({
+              ...s,
+              visited,
+              message: t("watchProgress.checking", { title }),
+            })),
         });
         setState({
           running: false,
-          message: "Готово",
+          message: t("watchProgress.done"),
           visited: Object.keys(result.nextSnapshot).length,
           diff: result.diff,
           nextSnapshot: result.nextSnapshot,
@@ -83,7 +100,10 @@ export function useCheckSubscription() {
         });
         qc.invalidateQueries({ queryKey: QUERY_KEY });
       } catch (e) {
-        setState({ ...INITIAL_CHECK, error: String((e as Error)?.message ?? e) });
+        setState({
+          ...INITIAL_CHECK,
+          error: String((e as Error)?.message ?? e),
+        });
       }
     },
     [qc],

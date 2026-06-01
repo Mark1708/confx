@@ -2,6 +2,7 @@ import { Download, Search } from "lucide-react";
 import { useState } from "react";
 import type { CurrentTabInfo } from "../hooks/useCurrentTab";
 import { useExtractJob } from "../hooks/useExtractJob";
+import { useI18n } from "../hooks/useI18n";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Input } from "../ui/input";
@@ -9,6 +10,7 @@ import { JobStatus } from "./JobStatus";
 
 export function JiraPanel({ tab }: { tab: CurrentTabInfo }) {
   const { state, run, cancel } = useExtractJob();
+  const { t } = useI18n();
   const [jqlValue, setJqlValue] = useState("");
 
   const isRunning = state?.status === "running";
@@ -29,14 +31,14 @@ export function JiraPanel({ tab }: { tab: CurrentTabInfo }) {
   return (
     <div className="min-w-0 space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">Jira-тикет</h2>
+        <h2 className="text-sm font-semibold">{t("jira.title")}</h2>
       </div>
 
       {tab.isJira && tab.issueKey ? (
         <>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium">Текущий тикет</CardTitle>
+              <CardTitle className="text-xs font-medium">{t("jira.currentIssue")}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="min-w-0 space-y-1 text-sm">
@@ -51,12 +53,12 @@ export function JiraPanel({ tab }: { tab: CurrentTabInfo }) {
           <Input
             value={jqlValue}
             onChange={(event) => setJqlValue(event.target.value)}
-            placeholder="JQL-запрос (необязательно)"
+            placeholder={t("jira.jqlPlaceholder")}
           />
 
           <Button className="w-full" disabled={!canExtractIssue} onClick={handleExtractIssue}>
             <Download className="h-4 w-4" />
-            Извлечь тикет
+            {t("jira.extractIssue")}
           </Button>
 
           {jql && (
@@ -67,14 +69,14 @@ export function JiraPanel({ tab }: { tab: CurrentTabInfo }) {
               onClick={handleExtractSearch}
             >
               <Search className="h-4 w-4" />
-              Извлечь по JQL
+              {t("jira.extractJql")}
             </Button>
           )}
         </>
       ) : (
         <Card>
           <CardContent className="p-3 text-xs text-muted-foreground">
-            Откройте Jira-тикет
+            {t("jira.openIssue")}
           </CardContent>
         </Card>
       )}

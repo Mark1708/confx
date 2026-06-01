@@ -9,21 +9,41 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { I18nKey, InterpolationValues, Translator } from "@/i18n";
 import { getPreset, PRESETS } from "@/lib/rule-engine";
 import type { ExtractionRule, RuleAction, RulePreset, RuleType } from "@/types";
+import {
+  getPresetDescription,
+  getPresetName,
+  getPresetRuleName,
+} from "../sidepanel/components/PresetSelector";
+import { useI18n } from "../sidepanel/hooks/useI18n";
 import { useSettings } from "../sidepanel/hooks/useSettings";
 import { useTheme } from "../sidepanel/hooks/useTheme";
 import { Button } from "../sidepanel/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../sidepanel/ui/card";
 import { Input } from "../sidepanel/ui/input";
 import { Label } from "../sidepanel/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../sidepanel/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../sidepanel/ui/select";
 import { Separator } from "../sidepanel/ui/separator";
 import { Switch } from "../sidepanel/ui/switch";
 
 const RULE_TYPES: RuleType[] = ["selector", "table", "section", "spoiler"];
-const RULE_ACTIONS: RuleAction[] = ["skip", "to-csv", "to-md", "gfm-table", "extract-images", "keep-html"];
+const RULE_ACTIONS: RuleAction[] = [
+  "skip",
+  "to-csv",
+  "to-md",
+  "gfm-table",
+  "extract-images",
+  "keep-html",
+];
 
 const MAX_RETRIES_MIN = 1;
 const MAX_RETRIES_MAX = 10;
@@ -36,20 +56,34 @@ type FeedbackTone = "success" | "error" | "info";
 
 interface ImportExportFeedback {
   tone: FeedbackTone;
-  message: string;
+  message?: string;
+  messageKey?: I18nKey;
+  messageValues?: InterpolationValues;
 }
 
 interface NavItem {
   href: string;
-  label: string;
-  description: string;
+  labelKey: I18nKey;
+  descriptionKey: I18nKey;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "#preset", label: "Пресет", description: "Базовая стратегия" },
-  { href: "#rules", label: "Правила", description: "Пользовательский слой" },
-  { href: "#general", label: "Общие", description: "Поведение экспорта" },
-  { href: "#export", label: "Экспорт", description: "API и лимиты" },
+  {
+    href: "#preset",
+    labelKey: "options.nav.preset",
+    descriptionKey: "options.nav.presetDescription",
+  },
+  { href: "#rules", labelKey: "options.nav.rules", descriptionKey: "options.nav.rulesDescription" },
+  {
+    href: "#general",
+    labelKey: "options.nav.general",
+    descriptionKey: "options.nav.generalDescription",
+  },
+  {
+    href: "#export",
+    labelKey: "options.nav.export",
+    descriptionKey: "options.nav.exportDescription",
+  },
 ];
 
 function clampInteger(value: number, min: number, max: number, fallback: number): number {
@@ -61,10 +95,10 @@ function makeId(): string {
   return `rule_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
-function emptyRule(): ExtractionRule {
+function emptyRule(name: string): ExtractionRule {
   return {
     id: makeId(),
-    name: "New rule",
+    name,
     type: "selector",
     matcher: "",
     action: "to-md",
@@ -84,25 +118,28 @@ function exportRules(preset: RulePreset, customRules: ExtractionRule[]): string 
   return JSON.stringify({ preset, customRules }, null, 2);
 }
 
-function importRules(json: string): { preset: RulePreset; customRules: ExtractionRule[] } {
+function importRules(
+  json: string,
+  t: Translator<I18nKey>,
+): { preset: RulePreset; customRules: ExtractionRule[] } {
   const parsed: unknown = JSON.parse(json);
   if (!isRecord(parsed) || !isRecord(parsed.preset) || !Array.isArray(parsed.customRules)) {
-    throw new Error("Некорректный формат файла правил");
+    throw new Error(t("options.importErrors.invalidFormat"));
   }
 
   const presetId = parsed.preset.id;
   if (typeof presetId !== "string") {
-    throw new Error("В файле правил не указан пресет");
+    throw new Error(t("options.importErrors.missingPreset"));
   }
 
   const preset = PRESETS.find((item) => item.id === presetId);
   if (!preset) {
-    throw new Error(`Неизвестный пресет: ${presetId}`);
+    throw new Error(t("options.importErrors.unknownPreset", { presetId }));
   }
 
   const customRules = parsed.customRules.filter(isExtractionRule);
   if (customRules.length !== parsed.customRules.length) {
-    throw new Error("Файл содержит некорректные пользовательские правила");
+    throw new Error(t("options.importErrors.invalidCustomRules"));
   }
 
   return { preset, customRules };
@@ -128,24 +165,41 @@ function isExtractionRule(value: unknown): value is ExtractionRule {
 
 export function OptionsApp() {
   const { data: settings, update } = useSettings();
+  const { t } = useI18n();
   useTheme();
   const importInputRef = useRef<HTMLInputElement>(null);
-  const [draft, setDraft] = useState<ExtractionRule>(emptyRule());
+  const defaultRuleName = t("options.rules.defaultName");
+  const previousDefaultRuleNameRef = useRef(defaultRuleName);
+  const [draft, setDraft] = useState<ExtractionRule>(() => emptyRule(defaultRuleName));
   const [transferFeedback, setTransferFeedback] = useState<ImportExportFeedback>({
     tone: "info",
-    message: "Готово к импорту или экспорту JSON правил.",
+    messageKey: "options.feedback.ready",
   });
   const rules = useMemo(() => settings?.customRules ?? [], [settings]);
   const activePreset = getPreset(settings?.activePresetId ?? "");
+
+  useEffect(() => {
+    document.documentElement.lang = settings?.locale === "en" ? "en" : "ru";
+    document.title = t("options.sidebar.title");
+  }, [settings?.locale, t]);
+
+  useEffect(() => {
+    const previousDefaultRuleName = previousDefaultRuleNameRef.current;
+    if (previousDefaultRuleName === defaultRuleName) return;
+
+    previousDefaultRuleNameRef.current = defaultRuleName;
+    setDraft((current) =>
+      current.name === previousDefaultRuleName ? { ...current, name: defaultRuleName } : current,
+    );
+  }, [defaultRuleName]);
 
   if (!settings) return null;
 
   const addRule = () => {
     update({ customRules: [...rules, { ...draft, id: makeId() }] });
-    setDraft(emptyRule());
+    setDraft(emptyRule(t("options.rules.defaultName")));
   };
-  const removeRule = (id: string) =>
-    update({ customRules: rules.filter((r) => r.id !== id) });
+  const removeRule = (id: string) => update({ customRules: rules.filter((r) => r.id !== id) });
   const patchRule = (id: string, patch: Partial<ExtractionRule>) =>
     update({ customRules: rules.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
 
@@ -159,7 +213,7 @@ export function OptionsApp() {
     link.download = `rules-${settings.activePresetId}-${timestamp}.json`;
     link.click();
     URL.revokeObjectURL(url);
-    setTransferFeedback({ tone: "success", message: "Экспорт правил запущен. JSON сохранится в загрузки браузера." });
+    setTransferFeedback({ tone: "success", messageKey: "options.feedback.exportStarted" });
   };
 
   const importCurrentRules = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -169,23 +223,28 @@ export function OptionsApp() {
 
     const reader = new FileReader();
     reader.onerror = () => {
-      setTransferFeedback({ tone: "error", message: "Не удалось прочитать файл правил." });
-      alert("Не удалось прочитать файл правил");
+      const message = t("options.importErrors.readFailed");
+      setTransferFeedback({ tone: "error", message });
+      alert(message);
       input.value = "";
     };
     reader.onload = () => {
       try {
         if (typeof reader.result !== "string") {
-          throw new Error("Файл правил должен быть текстовым JSON");
+          throw new Error(t("options.importErrors.textJsonRequired"));
         }
-        const result = importRules(reader.result);
+        const result = importRules(reader.result, t);
         update({ customRules: result.customRules, activePresetId: result.preset.id });
         setTransferFeedback({
           tone: "success",
-          message: `Импортировано правил: ${result.customRules.length}. Активный пресет: ${result.preset.name}.`,
+          message: t("options.feedback.imported", {
+            count: result.customRules.length,
+            preset: getPresetName(t, result.preset),
+          }),
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Не удалось импортировать правила";
+        const message =
+          error instanceof Error ? error.message : t("options.importErrors.importFailed");
         setTransferFeedback({ tone: "error", message });
         alert(message);
       } finally {
@@ -197,20 +256,22 @@ export function OptionsApp() {
 
   return (
     <div className="cx-options">
-      <aside className="cx-options-sidebar" aria-label="Навигация по настройкам">
+      <aside className="cx-options-sidebar" aria-label={t("options.sidebar.aria")}>
         <div className="cx-options-brand">
-          <span className="cx-options-logo" aria-hidden="true">CX</span>
+          <span className="cx-options-logo" aria-hidden="true">
+            CX
+          </span>
           <div>
-            <div className="cx-options-kicker">Консоль ConfX</div>
-            <div className="cx-options-brand-title">Правила экспорта</div>
+            <div className="cx-options-kicker">{t("options.sidebar.kicker")}</div>
+            <div className="cx-options-brand-title">{t("options.sidebar.title")}</div>
           </div>
         </div>
 
         <nav className="cx-options-nav">
           {NAV_ITEMS.map((item) => (
             <a key={item.href} className="cx-options-nav-link" href={item.href}>
-              <span>{item.label}</span>
-              <small>{item.description}</small>
+              <span>{t(item.labelKey)}</span>
+              <small>{t(item.descriptionKey)}</small>
             </a>
           ))}
         </nav>
@@ -219,7 +280,7 @@ export function OptionsApp() {
           <ShieldCheck className="h-4 w-4" />
           <div>
             <strong>{rules.length}</strong>
-            <span>пользовательских правил поверх пресета</span>
+            <span>{t("options.sidebar.customRulesSummary")}</span>
           </div>
         </div>
       </aside>
@@ -227,17 +288,20 @@ export function OptionsApp() {
       <main className="cx-options-main">
         <header className="cx-options-hero">
           <div>
-            <p className="cx-options-eyebrow">Панель правил ConfX</p>
-            <h1>ConfX — настройки извлечения</h1>
-            <p>
-              Правила применяются к HTML страницы перед конверсией в Markdown. Пресет активируется в side panel,
-              свои правила добавляются к выбранному пресету.
-            </p>
+            <p className="cx-options-eyebrow">{t("options.hero.eyebrow")}</p>
+            <h1>{t("options.hero.title")}</h1>
+            <p>{t("options.hero.description")}</p>
           </div>
-          <div className="cx-options-hero-panel" role="status" aria-label="Текущая конфигурация">
-            <span>Пресет</span>
-            <strong>{activePreset.name}</strong>
-            <small>{settings.customRules.length} пользовательских правил</small>
+          <div
+            className="cx-options-hero-panel"
+            role="status"
+            aria-label={t("options.hero.statusAria")}
+          >
+            <span>{t("options.hero.preset")}</span>
+            <strong>{getPresetName(t, activePreset)}</strong>
+            <small>
+              {t("options.hero.customRulesCount", { count: settings.customRules.length })}
+            </small>
           </div>
         </header>
 
@@ -247,39 +311,44 @@ export function OptionsApp() {
               <div className="cx-options-title-row">
                 <SlidersHorizontal className="h-4 w-4" />
                 <div>
-                  <CardTitle>Активный пресет</CardTitle>
-                  <CardDescription>Переключается из side panel на любой вкладке</CardDescription>
+                  <CardTitle>{t("options.preset.title")}</CardTitle>
+                  <CardDescription>{t("options.preset.description")}</CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="cx-options-card-content">
-              <Select value={settings.activePresetId} onValueChange={(id) => update({ activePresetId: id })}>
+              <Select
+                value={settings.activePresetId}
+                onValueChange={(id) => update({ activePresetId: id })}
+              >
                 <SelectTrigger className="cx-options-select">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {PRESETS.map((p) => (
                     <SelectItem key={p.id} value={p.id}>
-                      {p.name}
+                      {getPresetName(t, p)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <div className="cx-options-preset-preview">
-                <div className="cx-options-preset-description">{activePreset.description}</div>
+                <div className="cx-options-preset-description">
+                  {getPresetDescription(t, activePreset)}
+                </div>
                 {activePreset.rules.length > 0 ? (
                   <ul className="cx-options-rule-list">
                     {activePreset.rules.map((r) => (
                       <li key={r.id}>
                         <span className="cx-options-code-pill">{r.type}</span>
-                        <span>{r.name}</span>
+                        <span>{getPresetRuleName(t, r.id, r.name)}</span>
                         <span className="cx-options-arrow">→</span>
                         <span className="cx-options-code-pill">{r.action}</span>
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="cx-options-empty-inline">Пресет не добавляет правил автоматически.</p>
+                  <p className="cx-options-empty-inline">{t("options.preset.noRules")}</p>
                 )}
               </div>
             </CardContent>
@@ -292,14 +361,16 @@ export function OptionsApp() {
               <div className="cx-options-title-row">
                 <FileJson className="h-4 w-4" />
                 <div>
-                  <CardTitle>Пользовательские правила</CardTitle>
-                  <CardDescription>Применяются поверх пресета. Порядок: верхние правила раньше.</CardDescription>
+                  <CardTitle>{t("options.rules.title")}</CardTitle>
+                  <CardDescription>{t("options.rules.description")}</CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="cx-options-card-content">
               <div className="cx-options-rules-stack">
-                {rules.length === 0 && <p className="cx-options-empty">Пока нет правил. Добавьте matcher ниже.</p>}
+                {rules.length === 0 && (
+                  <p className="cx-options-empty">{t("options.rules.empty")}</p>
+                )}
                 {rules.map((r) => (
                   <RuleRow key={r.id} rule={r} onPatch={patchRule} onRemove={removeRule} />
                 ))}
@@ -309,16 +380,19 @@ export function OptionsApp() {
 
               <div className="cx-options-editor-panel">
                 <div>
-                  <Label className="cx-options-panel-title">Новое правило</Label>
-                  <p className="cx-options-panel-copy">Matcher может быть CSS-селектором или regex заголовка секции.</p>
+                  <Label className="cx-options-panel-title">{t("options.rules.newRule")}</Label>
+                  <p className="cx-options-panel-copy">{t("options.rules.newRuleDescription")}</p>
                 </div>
                 <div className="cx-options-new-rule-grid">
                   <Input
-                    placeholder="matcher (CSS / regex)"
+                    placeholder={t("options.rules.matcherPlaceholder")}
                     value={draft.matcher}
                     onChange={(e) => setDraft({ ...draft, matcher: e.target.value })}
                   />
-                  <Select value={draft.type} onValueChange={(v) => isRuleType(v) && setDraft({ ...draft, type: v })}>
+                  <Select
+                    value={draft.type}
+                    onValueChange={(v) => isRuleType(v) && setDraft({ ...draft, type: v })}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -347,7 +421,7 @@ export function OptionsApp() {
                   </Select>
                   <Button variant="accent" onClick={addRule} disabled={!draft.matcher}>
                     <Plus className="h-4 w-4" />
-                    Добавить
+                    {t("options.rules.add")}
                   </Button>
                 </div>
               </div>
@@ -356,18 +430,22 @@ export function OptionsApp() {
                 <div className="cx-options-transfer-copy">
                   <FileJson className="h-4 w-4" />
                   <div>
-                    <Label className="cx-options-panel-title">Импорт и экспорт правил</Label>
-                    <p className="cx-options-panel-copy">JSON содержит активный пресет и все пользовательские правила.</p>
+                    <Label className="cx-options-panel-title">
+                      {t("options.rules.importExport")}
+                    </Label>
+                    <p className="cx-options-panel-copy">
+                      {t("options.rules.importExportDescription")}
+                    </p>
                   </div>
                 </div>
                 <div className="cx-options-transfer-actions">
                   <Button variant="outline" onClick={exportCurrentRules}>
                     <Download className="h-4 w-4" />
-                    Экспорт правил
+                    {t("options.rules.export")}
                   </Button>
                   <Button variant="outline" onClick={() => importInputRef.current?.click()}>
                     <Upload className="h-4 w-4" />
-                    Импорт правил
+                    {t("options.rules.import")}
                   </Button>
                   <input
                     ref={importInputRef}
@@ -389,22 +467,31 @@ export function OptionsApp() {
               <div className="cx-options-title-row">
                 <Settings2 className="h-4 w-4" />
                 <div>
-                  <CardTitle>Общие настройки</CardTitle>
-                  <CardDescription>Что включать в архив и Markdown</CardDescription>
+                  <CardTitle>{t("options.general.title")}</CardTitle>
+                  <CardDescription>{t("options.general.description")}</CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="cx-options-card-content cx-options-settings-stack">
-              <LabelRow label="Front-matter YAML в каждый .md">
-                <Switch checked={settings.includeFrontMatter} onCheckedChange={(v) => update({ includeFrontMatter: v })} />
+              <LabelRow label={t("options.general.frontMatter")}>
+                <Switch
+                  checked={settings.includeFrontMatter}
+                  onCheckedChange={(v) => update({ includeFrontMatter: v })}
+                />
               </LabelRow>
-              <LabelRow label="Перезапись внутренних ссылок">
-                <Switch checked={settings.rewriteInternalLinks} onCheckedChange={(v) => update({ rewriteInternalLinks: v })} />
+              <LabelRow label={t("options.general.rewriteInternalLinks")}>
+                <Switch
+                  checked={settings.rewriteInternalLinks}
+                  onCheckedChange={(v) => update({ rewriteInternalLinks: v })}
+                />
               </LabelRow>
-              <LabelRow label="Дедупликация картинок">
-                <Switch checked={settings.deduplicateImages} onCheckedChange={(v) => update({ deduplicateImages: v })} />
+              <LabelRow label={t("options.general.deduplicateImages")}>
+                <Switch
+                  checked={settings.deduplicateImages}
+                  onCheckedChange={(v) => update({ deduplicateImages: v })}
+                />
               </LabelRow>
-              <LabelRow label="Параллельных запросов">
+              <LabelRow label={t("options.general.concurrency")}>
                 <Input
                   type="number"
                   min={1}
@@ -422,28 +509,28 @@ export function OptionsApp() {
               <div className="cx-options-title-row">
                 <CheckCircle2 className="h-4 w-4" />
                 <div>
-                  <CardTitle>Настройки экспорта</CardTitle>
-                  <CardDescription>Ограничения для запросов к Confluence API</CardDescription>
+                  <CardTitle>{t("options.exportSettings.title")}</CardTitle>
+                  <CardDescription>{t("options.exportSettings.description")}</CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="cx-options-card-content cx-options-settings-stack">
               <NumberSettingRow
-                label="Максимум повторных попыток"
+                label={t("options.exportSettings.maxRetries")}
                 min={MAX_RETRIES_MIN}
                 max={MAX_RETRIES_MAX}
                 value={settings.maxRetries}
                 onSave={(value) => update({ maxRetries: value })}
               />
               <NumberSettingRow
-                label="Таймаут запроса (сек.)"
+                label={t("options.exportSettings.requestTimeout")}
                 min={REQUEST_TIMEOUT_SECONDS_MIN}
                 max={REQUEST_TIMEOUT_SECONDS_MAX}
                 value={Math.round(settings.requestTimeout / 1000)}
                 onSave={(value) => update({ requestTimeout: value * 1000 })}
               />
               <NumberSettingRow
-                label="Макс. параллельных запросов"
+                label={t("options.exportSettings.maxConcurrency")}
                 min={MAX_CONCURRENCY_MIN}
                 max={MAX_CONCURRENCY_MAX}
                 value={settings.maxConcurrency}
@@ -466,23 +553,31 @@ function RuleRow({
   onPatch: (id: string, patch: Partial<ExtractionRule>) => void;
   onRemove: (id: string) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="cx-options-rule-row">
       <div className="cx-options-rule-toggle">
         <Switch checked={rule.enabled} onCheckedChange={(v) => onPatch(rule.id, { enabled: v })} />
-        <span>{rule.enabled ? "Вкл" : "Выкл"}</span>
+        <span>{rule.enabled ? t("options.rules.enabled") : t("options.rules.disabled")}</span>
       </div>
-      <Input value={rule.name} placeholder="Название" onChange={(e) => onPatch(rule.id, { name: e.target.value })} />
+      <Input
+        value={rule.name}
+        placeholder={t("options.rules.namePlaceholder")}
+        onChange={(e) => onPatch(rule.id, { name: e.target.value })}
+      />
       <Input
         value={rule.matcher}
         placeholder={
           rule.type === "section"
-            ? "regex на заголовок секции (например: API\\s+компонент)"
-            : "CSS-селектор (например: table.confluenceTable)"
+            ? t("options.rules.sectionMatcherPlaceholder")
+            : t("options.rules.cssMatcherPlaceholder")
         }
         onChange={(e) => onPatch(rule.id, { matcher: e.target.value })}
       />
-      <Select value={rule.type} onValueChange={(v) => isRuleType(v) && onPatch(rule.id, { type: v })}>
+      <Select
+        value={rule.type}
+        onValueChange={(v) => isRuleType(v) && onPatch(rule.id, { type: v })}
+      >
         <SelectTrigger>
           <SelectValue />
         </SelectTrigger>
@@ -494,7 +589,10 @@ function RuleRow({
           ))}
         </SelectContent>
       </Select>
-      <Select value={rule.action} onValueChange={(v) => isRuleAction(v) && onPatch(rule.id, { action: v })}>
+      <Select
+        value={rule.action}
+        onValueChange={(v) => isRuleAction(v) && onPatch(rule.id, { action: v })}
+      >
         <SelectTrigger>
           <SelectValue />
         </SelectTrigger>
@@ -506,7 +604,12 @@ function RuleRow({
           ))}
         </SelectContent>
       </Select>
-      <Button variant="ghost" size="icon" onClick={() => onRemove(rule.id)} aria-label="Удалить правило">
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => onRemove(rule.id)}
+        aria-label={t("options.rules.deleteAria")}
+      >
         <Trash2 className="h-4 w-4" />
       </Button>
     </div>
@@ -514,7 +617,12 @@ function RuleRow({
 }
 
 function FeedbackMessage({ feedback }: { feedback: ImportExportFeedback }) {
-  return <p className={`cx-options-feedback cx-options-feedback-${feedback.tone}`}>{feedback.message}</p>;
+  const { t } = useI18n();
+  const message = feedback.messageKey
+    ? t(feedback.messageKey, feedback.messageValues)
+    : (feedback.message ?? "");
+
+  return <p className={`cx-options-feedback cx-options-feedback-${feedback.tone}`}>{message}</p>;
 }
 
 function NumberSettingRow({

@@ -10,6 +10,7 @@ import {
   extractPage,
   extractSpace,
   extractSubtree,
+  extractWatchChanged,
   type ProgressEvent,
 } from "../extraction";
 
@@ -18,6 +19,7 @@ type ExtractRequest = Extract<
   {
     kind:
       | "extract-page"
+      | "extract-watch-changed"
       | "extract-subtree"
       | "extract-block"
       | "extract-space"
@@ -105,11 +107,10 @@ export function useExtractJob() {
   return { state, restoredState, run, cancel, reset };
 }
 
-function isExtractRequest(
-  req: ExtensionRequest,
-): req is ExtractRequest {
+function isExtractRequest(req: ExtensionRequest): req is ExtractRequest {
   return (
     req.kind === "extract-page" ||
+    req.kind === "extract-watch-changed" ||
     req.kind === "extract-subtree" ||
     req.kind === "extract-block" ||
     req.kind === "extract-space" ||
@@ -121,6 +122,10 @@ function isExtractRequest(
 function buildConfig(req: ExtractRequest): ExportJobConfig {
   if (req.kind === "extract-page") {
     return { kind: "extract-page", host: req.host, presetId: req.presetId, pageId: req.pageId };
+  }
+
+  if (req.kind === "extract-watch-changed") {
+    return { kind: "extract-watch-changed", host: req.host, presetId: req.presetId };
   }
 
   if (req.kind === "extract-subtree") {
@@ -171,6 +176,7 @@ async function runExtraction(
   signal?: AbortSignal,
 ) {
   if (req.kind === "extract-page") return extractPage(req, onProgress, signal);
+  if (req.kind === "extract-watch-changed") return extractWatchChanged(req, onProgress, signal);
   if (req.kind === "extract-subtree") return extractSubtree(req, onProgress, signal);
   if (req.kind === "extract-space") return extractSpace(req, onProgress, signal);
   if (req.kind === "extract-jira-issue") return extractJiraIssue(req, onProgress, signal);

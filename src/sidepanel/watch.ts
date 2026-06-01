@@ -1,15 +1,15 @@
-import { ConfluenceApi } from "@/lib/confluence-api";
+import { createConfluenceApi } from "@/lib/create-api";
 import { buildPageSnapshot, buildSubtreeSnapshot } from "@/lib/snapshot-walker";
+import type { PageSnapshot, Subscription, SubscriptionDiff } from "@/lib/subscriptions";
 import {
+  appendCheckHistory,
   deleteSubscription,
   diffSnapshots,
   getSubscription,
   listSubscriptions,
   makeSubscriptionId,
+  summarizeDiff,
   upsertSubscription,
-  type PageSnapshot,
-  type Subscription,
-  type SubscriptionDiff,
 } from "@/lib/subscriptions";
 import type { SubscriptionScope } from "@/types";
 
@@ -22,7 +22,7 @@ export interface SubscribeOptions {
 }
 
 export async function subscribe(opts: SubscribeOptions): Promise<Subscription> {
-  const api = new ConfluenceApi(opts.host);
+  const api = await createConfluenceApi(opts.host);
   const { snapshot, root } =
     opts.scope === "page"
       ? await buildPageSnapshot(api, opts.rootId)
@@ -59,7 +59,7 @@ export async function checkSubscription(
   const sub = await getSubscription(id);
   if (!sub) throw new Error(`Подписка ${id} не найдена`);
 
-  const api = new ConfluenceApi(sub.host);
+  const api = await createConfluenceApi(sub.host);
   const { snapshot: nextSnapshot } =
     sub.scope === "page"
       ? await buildPageSnapshot(api, sub.rootId)
@@ -70,16 +70,14 @@ export async function checkSubscription(
 
   const checkedAt = new Date().toISOString();
   const diff = diffSnapshots(sub.snapshot, nextSnapshot, checkedAt);
-  const updated: Subscription = {
-    ...sub,
-    lastCheckedAt: checkedAt,
-    lastDiffSummary: {
-      added: diff.added.length,
-      removed: diff.removed.length,
-      changed: diff.changed.length,
-      moved: diff.moved.length,
+  const updated = appendCheckHistory(
+    {
+      ...sub,
+      lastCheckedAt: checkedAt,
+      lastDiffSummary: summarizeDiff(diff),
     },
-  };
+    diff,
+  );
   await upsertSubscription(updated);
   return { subscription: updated, diff, nextSnapshot };
 }
@@ -100,9 +98,4 @@ export async function acceptChanges(id: string, nextSnapshot: PageSnapshot): Pro
   await upsertSubscription(updated);
 }
 
-export {
-  listSubscriptions,
-  deleteSubscription,
-  getSubscription,
-  makeSubscriptionId,
-};
+export { deleteSubscription, getSubscription, listSubscriptions, makeSubscriptionId };

@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { Globe, Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { DEFAULT_PRESET_ID } from "@/lib/rule-engine";
 import { fetchSpacePageEstimate } from "../extraction";
 import type { CurrentTabInfo } from "../hooks/useCurrentTab";
 import { useExtractJob } from "../hooks/useExtractJob";
+import { useI18n } from "../hooks/useI18n";
 import { usePageInfo } from "../hooks/usePageInfo";
 import { useSettings } from "../hooks/useSettings";
 import { Button } from "../ui/button";
@@ -14,13 +16,14 @@ import { PresetSelector } from "./PresetSelector";
 
 export function SpacePanel({ tab }: { tab: CurrentTabInfo }) {
   const info = usePageInfo(tab.host, tab.pageId);
+  const { t } = useI18n();
   const { data: settings, update } = useSettings();
   const { state, run, cancel } = useExtractJob();
   const [label, setLabel] = useState("");
   const [prefix, setPrefix] = useState("");
 
   const spaceKey = info.data?.meta?.spaceKey;
-  const preset = settings?.activePresetId ?? "ui-component";
+  const preset = settings?.activePresetId ?? DEFAULT_PRESET_ID;
   const isRunning = state?.status === "running";
   const options = useMemo(() => {
     const trimmedLabel = label.trim();
@@ -36,7 +39,7 @@ export function SpacePanel({ tab }: { tab: CurrentTabInfo }) {
     enabled: Boolean(tab.host && spaceKey),
     queryFn: ({ signal }) => {
       if (!tab.host || !spaceKey) {
-        throw new Error("Не удалось определить пространство для оценки экспорта");
+        throw new Error(t("space.estimateError"));
       }
       return fetchSpacePageEstimate(tab.host, spaceKey, options, signal);
     },
@@ -46,25 +49,23 @@ export function SpacePanel({ tab }: { tab: CurrentTabInfo }) {
   return (
     <div className="min-w-0 space-y-3">
       <div className="space-y-1">
-        <Label>Пространство</Label>
+        <Label>{t("space.title")}</Label>
         <div className="rounded-md border bg-card p-3 text-sm">
           {info.isLoading ? (
             <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Определяю пространство…
+              {t("space.detecting")}
             </div>
           ) : spaceKey ? (
             <div className="flex min-w-0 items-center gap-2">
               <Globe className="h-4 w-4 shrink-0 text-primary" />
               <div className="min-w-0">
-                <div className="text-xs text-muted-foreground">Ключ пространства</div>
+                <div className="text-xs text-muted-foreground">{t("space.key")}</div>
                 <div className="break-all font-mono font-medium">{spaceKey}</div>
               </div>
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">
-              Откройте Confluence-страницу для определения пространства
-            </p>
+            <p className="text-xs text-muted-foreground">{t("space.openPageHint")}</p>
           )}
         </div>
       </div>
@@ -73,27 +74,29 @@ export function SpacePanel({ tab }: { tab: CurrentTabInfo }) {
 
       <div className="space-y-2 rounded-md border bg-card p-3">
         <div className="space-y-1">
-          <Label htmlFor="space-label-filter">Label-фильтр</Label>
+          <Label htmlFor="space-label-filter">{t("space.labelFilter")}</Label>
           <Input
             id="space-label-filter"
             value={label}
             disabled={isRunning}
-            placeholder="например: public"
+            placeholder={t("space.labelPlaceholder")}
             onChange={(event) => setLabel(event.target.value)}
           />
         </div>
         <div className="space-y-1">
-          <Label htmlFor="space-prefix-filter">Префикс заголовка</Label>
+          <Label htmlFor="space-prefix-filter">{t("space.prefixFilter")}</Label>
           <Input
             id="space-prefix-filter"
             value={prefix}
             disabled={isRunning}
-            placeholder="например: API"
+            placeholder={t("space.prefixPlaceholder")}
             onChange={(event) => setPrefix(event.target.value)}
           />
         </div>
         <div className="text-xs text-muted-foreground">
-          {estimate.isFetching ? "Оцениваю размер экспорта…" : `Будет экспортировано страниц: ${estimate.data ?? 0}`}
+          {estimate.isFetching
+            ? t("space.estimating")
+            : t("space.pagesCount", { count: estimate.data ?? 0 })}
         </div>
       </div>
 
@@ -113,7 +116,7 @@ export function SpacePanel({ tab }: { tab: CurrentTabInfo }) {
         }
       >
         {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}
-        Экспортировать пространство
+        {t("space.export")}
       </Button>
 
       <JobStatus state={state} onCancel={cancel} />

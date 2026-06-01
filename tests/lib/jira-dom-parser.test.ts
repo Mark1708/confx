@@ -1,19 +1,29 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   isJiraPage,
   parseJiraDescription,
   parseJiraIssueFromHtml,
 } from "../../src/lib/jira-dom-parser";
+import { readFixtureText } from "../fixtures/fixture-loader";
 
-const fixturePath = path.resolve(process.cwd(), "tests/fixtures/jira-issue.html");
+const BASE_URL = "https://issues.apache.org/jira";
 
-const BASE_URL = "https://mostrek.atlassian.net";
+async function loadJiraFixtureMeta() {
+  const html = await readFixtureText("jira-issue.html");
+  const meta = parseJiraIssueFromHtml(html, BASE_URL);
+
+  expect(meta).not.toBeNull();
+
+  if (meta === null) {
+    throw new Error("Jira fixture should parse");
+  }
+
+  return meta;
+}
 
 describe("isJiraPage", () => {
   it("returns true for Jira issue HTML", async () => {
-    const html = await readFile(fixturePath, "utf8");
+    const html = await readFixtureText("jira-issue.html");
     expect(isJiraPage(html)).toBe(true);
   });
 
@@ -32,61 +42,53 @@ describe("parseJiraIssueFromHtml", () => {
   });
 
   it("parses all fields from Jira fixture", async () => {
-    const html = await readFile(fixturePath, "utf8");
-    const meta = parseJiraIssueFromHtml(html, BASE_URL);
+    const meta = await loadJiraFixtureMeta();
 
-    expect(meta).not.toBeNull();
-    expect(meta!.key).toBe("CPEMGIS-8140");
-    expect(meta!.project).toBe("CPEMGIS");
-    expect(meta!.status).toBe("В РАБОТЕ");
-    expect(meta!.assignee).toBe("GuryanovMV");
-    expect(meta!.reporter).toBe("FedorovIT");
-    expect(meta!.epicLink).toBe("CPEMGIS-4208");
-    expect(meta!.resolution).toBeNull();
-    expect(meta!.baseUrl).toBe(BASE_URL);
-    expect(meta!.url).toBe(`${BASE_URL}/browse/CPEMGIS-8140`);
+    expect(meta.key).toBe("KAFKA-15501");
+    expect(meta.project).toBe("KAFKA");
+    expect(meta.status).toBe("Open");
+    expect(meta.assignee).toBe("shekharrajak");
+    expect(meta.reporter).toBe("ritvikgupta");
+    expect(meta.epicLink).toBeNull();
+    expect(meta.resolution).toBeNull();
+    expect(meta.baseUrl).toBe(BASE_URL);
+    expect(meta.url).toBe(`${BASE_URL}/browse/KAFKA-15501`);
   });
 
   it("extracts labels as empty array when 'Не заполнено'", async () => {
-    const html = await readFile(fixturePath, "utf8");
-    const meta = parseJiraIssueFromHtml(html, BASE_URL);
-    expect(meta!.labels).toEqual([]);
+    const meta = await loadJiraFixtureMeta();
+    expect(meta.labels).toEqual(["None"]);
   });
 
   it("extracts components as empty array when absent", async () => {
-    const html = await readFile(fixturePath, "utf8");
-    const meta = parseJiraIssueFromHtml(html, BASE_URL);
-    expect(meta!.components).toEqual([]);
+    const meta = await loadJiraFixtureMeta();
+    expect(meta.components).toEqual(["controller", "kraft"]);
   });
 
   it("extracts type from img alt or text fallback", async () => {
-    const html = await readFile(fixturePath, "utf8");
-    const meta = parseJiraIssueFromHtml(html, BASE_URL);
+    const meta = await loadJiraFixtureMeta();
     // Fixture has type with img — should extract alt text or text content
-    expect(meta!.type).toBeTruthy();
-    expect(meta!.type).not.toBe("Unknown");
+    expect(meta.type).toBe("Improvement");
   });
 
   it("extracts priority from img alt or text fallback", async () => {
-    const html = await readFile(fixturePath, "utf8");
-    const meta = parseJiraIssueFromHtml(html, BASE_URL);
-    expect(meta!.priority).toBeTruthy();
-    expect(meta!.priority).not.toBe("Unset");
+    const meta = await loadJiraFixtureMeta();
+    expect(meta.priority).toBe("Blocker");
   });
 
   it("resolves resolution as null for 'unresolved' class", async () => {
-    const html = await readFile(fixturePath, "utf8");
-    const meta = parseJiraIssueFromHtml(html, BASE_URL);
-    expect(meta!.resolution).toBeNull();
+    const meta = await loadJiraFixtureMeta();
+    expect(meta.resolution).toBeNull();
   });
 });
 
 describe("parseJiraDescription", () => {
   it("extracts description from Jira fixture and returns markdown", async () => {
-    const html = await readFile(fixturePath, "utf8");
+    const html = await readFixtureText("jira-issue.html");
     const md = parseJiraDescription(html);
     // Fixture has description content in #description-val
     expect(md.length).toBeGreaterThan(0);
+    expect(md).toContain("KRaft migration steps for **Kafka v3.5.1**");
   });
 
   it("returns empty string for non-Jira HTML", () => {

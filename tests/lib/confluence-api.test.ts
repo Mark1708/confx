@@ -5,6 +5,7 @@ import {
   type ConfluenceAttachmentRaw,
   type ConfluencePageRaw,
   extractBaseUrl,
+  extractConfluenceBaseUrlFromUrl,
   extractHostFromUrl,
   extractPageIdFromUrl,
 } from "@/lib/confluence-api";
@@ -60,6 +61,10 @@ describe("extractPageIdFromUrl", () => {
     expect(
       extractPageIdFromUrl("https://example.atlassian.net/wiki/display/SPACE/Page+Title"),
     ).toBeNull();
+  });
+
+  it("returns null for unrelated numeric path segments", () => {
+    expect(extractPageIdFromUrl("https://example.com/blog/12345")).toBeNull();
   });
 });
 
@@ -139,6 +144,22 @@ describe("extractHostFromUrl", () => {
   });
 });
 
+describe("extractConfluenceBaseUrlFromUrl", () => {
+  it("keeps /wiki for Confluence Cloud URLs", () => {
+    expect(
+      extractConfluenceBaseUrlFromUrl(
+        "https://example.atlassian.net/wiki/spaces/ABC/pages/12345/Page",
+      ),
+    ).toBe("https://example.atlassian.net/wiki");
+  });
+
+  it("keeps root base for Confluence Server at origin", () => {
+    expect(extractConfluenceBaseUrlFromUrl("https://wiki.example.com/display/ABC/Page")).toBe(
+      "https://wiki.example.com",
+    );
+  });
+});
+
 describe("ConfluenceApi", () => {
   beforeEach(() => {
     fetchMock.mockReset();
@@ -184,6 +205,28 @@ describe("ConfluenceApi", () => {
     expect(await result.text()).toBe("file content");
     expect(result.type).toBe("text/plain");
     expect(fetchMock).toHaveBeenCalledWith("https://confluence.example.com/download/attachments/1/file.txt", {
+      credentials: "include",
+    });
+  });
+
+  it("fetchBlob preserves absolute attachment URLs", async () => {
+    fetchMock.mockResolvedValueOnce(new Response("file content"));
+    const api = new ConfluenceApi("https://confluence.example.com/wiki");
+
+    await api.fetchBlob("https://cdn.example.com/wiki/download/attachments/1/file.png");
+
+    expect(fetchMock).toHaveBeenCalledWith("https://cdn.example.com/wiki/download/attachments/1/file.png", {
+      credentials: "include",
+    });
+  });
+
+  it("fetchBlob does not duplicate the detected Confluence base path", async () => {
+    fetchMock.mockResolvedValueOnce(new Response("file content"));
+    const api = new ConfluenceApi(extractBaseUrl("https://confluence.example.com/wiki/spaces/DEV/pages/123"));
+
+    await api.fetchBlob("/wiki/download/attachments/1/file.png");
+
+    expect(fetchMock).toHaveBeenCalledWith("https://confluence.example.com/wiki/download/attachments/1/file.png", {
       credentials: "include",
     });
   });

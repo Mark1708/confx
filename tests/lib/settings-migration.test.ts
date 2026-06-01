@@ -27,7 +27,7 @@ describe("migrateSettings", () => {
     expect(migrateSettings([1, 2, 3])).toEqual(DEFAULT_SETTINGS);
   });
 
-  it("migrates legacy object without version field (v0 → v1)", () => {
+  it("migrates legacy object without version field", () => {
     const legacy = { host: "https://confluence.example.com", theme: "light" } as Record<
       string,
       unknown
@@ -40,6 +40,49 @@ describe("migrateSettings", () => {
     // defaults fill the rest
     expect(result.concurrency).toBe(DEFAULT_SETTINGS.concurrency);
     expect(result.fontSize).toBe(DEFAULT_SETTINGS.fontSize);
+    expect(result.locale).toBe("auto");
+  });
+
+  it("migrates v1 settings with missing locale to auto", () => {
+    const v1Settings = {
+      ...DEFAULT_SETTINGS,
+      version: 1,
+      locale: undefined,
+      host: "https://v1.example.com",
+    };
+
+    const result = migrateSettings(v1Settings);
+
+    expect(result.version).toBe(CURRENT_SETTINGS_VERSION);
+    expect(result.host).toBe("https://v1.example.com");
+    expect(result.locale).toBe("auto");
+  });
+
+  it("migrates legacy generic preset to MD-only while preserving locale", () => {
+    const legacy = {
+      ...DEFAULT_SETTINGS,
+      version: 2,
+      activePresetId: "generic",
+      locale: "en",
+    };
+
+    const result = migrateSettings(legacy);
+
+    expect(result.version).toBe(CURRENT_SETTINGS_VERSION);
+    expect(result.activePresetId).toBe("md-only");
+    expect(result.locale).toBe("en");
+  });
+
+  it("defaults unknown preset ids to MD with attachments", () => {
+    const legacy = {
+      ...DEFAULT_SETTINGS,
+      version: 2,
+      activePresetId: "unknown-preset",
+    };
+
+    const result = migrateSettings(legacy);
+
+    expect(result.activePresetId).toBe("md-attachments");
   });
 
   it("preserves current-version object as-is", () => {
@@ -47,12 +90,14 @@ describe("migrateSettings", () => {
       ...DEFAULT_SETTINGS,
       host: "https://wiki.local",
       fontSize: 18,
+      locale: "en",
     };
     const result = migrateSettings(current);
 
     expect(result.version).toBe(CURRENT_SETTINGS_VERSION);
     expect(result.host).toBe("https://wiki.local");
     expect(result.fontSize).toBe(18);
+    expect(result.locale).toBe("en");
   });
 
   it("forward-compatible: preserves newer version without running migrations", () => {
@@ -77,7 +122,38 @@ describe("migrateSettings", () => {
     expect(result.concurrency).toBe(DEFAULT_SETTINGS.concurrency);
     expect(result.includeFrontMatter).toBe(DEFAULT_SETTINGS.includeFrontMatter);
     expect(result.customRules).toEqual(DEFAULT_SETTINGS.customRules);
+    expect(result.locale).toBe(DEFAULT_SETTINGS.locale);
+    expect(result.showConfluenceButton).toBe(DEFAULT_SETTINGS.showConfluenceButton);
+    expect(result.showJiraButton).toBe(DEFAULT_SETTINGS.showJiraButton);
     expect(result.version).toBe(CURRENT_SETTINGS_VERSION);
+  });
+
+  it("migrates v3 settings by backfilling floating button defaults without losing fields", () => {
+    const v3Settings = {
+      ...DEFAULT_SETTINGS,
+      version: 3,
+      host: "https://v3.example.com",
+      locale: "en",
+      activePresetId: "md-only",
+      showConfluenceButton: undefined,
+      showJiraButton: undefined,
+    };
+
+    const result = migrateSettings(v3Settings);
+
+    expect(result.version).toBe(CURRENT_SETTINGS_VERSION);
+    expect(result.host).toBe("https://v3.example.com");
+    expect(result.locale).toBe("en");
+    expect(result.activePresetId).toBe("md-only");
+    expect(result.showConfluenceButton).toBe(true);
+    expect(result.showJiraButton).toBe(true);
+  });
+
+  it("normalizes invalid locale override to auto", () => {
+    const legacy = { locale: "de" } as Record<string, unknown>;
+    const result = migrateSettings(legacy);
+
+    expect(result.locale).toBe(DEFAULT_SETTINGS.locale);
   });
 
   it("normalizes removed win95 theme to the default theme", () => {
@@ -109,6 +185,10 @@ describe("DEFAULT_SETTINGS", () => {
     expect(typeof DEFAULT_SETTINGS.concurrency).toBe("number");
     expect(typeof DEFAULT_SETTINGS.fontSize).toBe("number");
     expect(typeof DEFAULT_SETTINGS.theme).toBe("string");
+    expect(typeof DEFAULT_SETTINGS.showConfluenceButton).toBe("boolean");
+    expect(typeof DEFAULT_SETTINGS.showJiraButton).toBe("boolean");
+    expect(DEFAULT_SETTINGS.locale).toBe("auto");
+    expect(DEFAULT_SETTINGS.activePresetId).toBe("md-attachments");
     expect(Array.isArray(DEFAULT_SETTINGS.customRules)).toBe(true);
   });
 });

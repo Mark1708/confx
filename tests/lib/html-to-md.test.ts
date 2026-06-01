@@ -1,10 +1,7 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { buildTurndown, htmlToMarkdown } from "../../src/lib/html-to-md";
-
-const fixturePath = path.resolve(process.cwd(), "tests/fixtures/confluence-page.html");
+import { readFixtureText } from "../fixtures/fixture-loader";
 
 function normalizeWhitespace(markdown: string): string {
   return markdown.replace(/\r\n/g, "\n").trim();
@@ -47,6 +44,43 @@ describe("htmlToMarkdown", () => {
     expect(markdown).toContain("![Preview](preferred.png)");
     expect(markdown).toContain("![Plain](plain.png)");
     expect(markdown).not.toContain("fallback.png");
+  });
+
+  it("converts syntax highlighter pre blocks to fenced code with language", () => {
+    const markdown = htmlToMarkdown(`
+      <pre data-syntaxhighlighter-params="brush:java;first-line:1"><code>class Demo {}</code></pre>
+    `);
+
+    expect(markdown).toContain("```java\nclass Demo {}\n```");
+  });
+
+  it("converts Jira wiki links and bold markup to Markdown", () => {
+    const markdown = htmlToMarkdown(`
+      <p>[KIP-866|https://cwiki.apache.org/confluence/display/KAFKA/KIP-866] {*}Kafka v3.5.1{*}</p>
+    `);
+
+    expect(markdown).toContain(
+      "[KIP-866](https://cwiki.apache.org/confluence/display/KAFKA/KIP-866)",
+    );
+    expect(markdown).toContain("**Kafka v3.5.1**");
+  });
+
+  it("converts Jira wiki code macros to fenced code", () => {
+    const markdown = htmlToMarkdown("<p>{code:sql}select 1;{code}</p>");
+
+    expect(markdown).toContain("```sql\nselect 1;\n```");
+  });
+
+  it("drops attachments macro UI noise", () => {
+    const markdown = htmlToMarkdown(`
+      <div class="conf-macro" data-macro-name="attachments">
+        <table><tr><th>Файл</th><th>Изменено</th></tr></table>
+        <p>Файлов еще нет.</p>
+        <p>Загрузить файл <img src="/wiki/images/icons/wait.gif"></p>
+      </div>
+    `);
+
+    expect(markdown).toBe("");
   });
 
   it("returns an empty string for empty input", () => {
@@ -142,7 +176,9 @@ describe("htmlToMarkdown", () => {
   });
 
   it("uses a custom link rewriter for link hrefs", () => {
-    const linkRewriter = vi.fn((href: string, text: string): string => `/rewritten/${text}/${href}`);
+    const linkRewriter = vi.fn(
+      (href: string, text: string): string => `/rewritten/${text}/${href}`,
+    );
 
     const markdown = htmlToMarkdown('<p><a href="page.html">Page</a></p>', { linkRewriter });
 
@@ -272,16 +308,16 @@ describe("buildTurndown", () => {
 describe("jira issue macro", () => {
   it("converts open jira issue to linked markdown with summary and status", () => {
     const md = htmlToMarkdown(`
-      <span class="jira-issue" data-jira-key="CPEMGIS-12446">
-        <a href="https://itpm.mos.ru/browse/CPEMGIS-12446" class="jira-issue-key">
-          <img class="icon" src="https://itpm.mos.ru/secure/viewavatar?size=xsmall&amp;avatarId=10318&amp;avatarType=issuetype">CPEMGIS-12446
+      <span class="jira-issue" data-jira-key="KAFKA-15501">
+        <a href="https://issues.apache.org/jira/browse/KAFKA-15501" class="jira-issue-key">
+          <img class="icon" src="https://issues.apache.org/jira/secure/viewavatar?size=xsmall&amp;avatarId=10318&amp;avatarType=issuetype">KAFKA-15501
         </a>
         -
         <span class="summary">Create step navigation</span>
         <span class="aui-lozenge aui-lozenge-subtle aui-lozenge-current jira-macro-single-issue-export-pdf">Review</span>
       </span>
     `);
-    expect(md).toContain("[CPEMGIS-12446](https://itpm.mos.ru/browse/CPEMGIS-12446)");
+    expect(md).toContain("[KAFKA-15501](https://issues.apache.org/jira/browse/KAFKA-15501)");
     expect(md).toContain("- Create step navigation");
     expect(md).toContain("[Review]");
     expect(md).not.toContain("~~");
@@ -289,27 +325,27 @@ describe("jira issue macro", () => {
 
   it("converts resolved jira issue with strikethrough", () => {
     const md = htmlToMarkdown(`
-      <span class="jira-issue resolved" data-jira-key="CPEMGIS-5833">
-        <a href="https://itpm.mos.ru/browse/CPEMGIS-5833" class="jira-issue-key">CPEMGIS-5833</a>
+      <span class="jira-issue resolved" data-jira-key="KAFKA-15502">
+        <a href="https://issues.apache.org/jira/browse/KAFKA-15502" class="jira-issue-key">KAFKA-15502</a>
         -
         <span class="summary">Implement UI</span>
         <span class="aui-lozenge aui-lozenge-success jira-macro-single-issue-export-pdf">Done</span>
       </span>
     `);
     expect(md).toContain("~~");
-    expect(md).toContain("[CPEMGIS-5833]");
+    expect(md).toContain("[KAFKA-15502]");
     expect(md).toContain("- Implement UI");
     expect(md).toContain("[Done]");
   });
 
   it("handles jira issue without summary", () => {
     const md = htmlToMarkdown(`
-      <span class="jira-issue" data-jira-key="CPEMGIS-100">
-        <a href="https://jira.example.com/browse/CPEMGIS-100" class="jira-issue-key">CPEMGIS-100</a>
+      <span class="jira-issue" data-jira-key="KAFKA-100">
+        <a href="https://issues.apache.org/jira/browse/KAFKA-100" class="jira-issue-key">KAFKA-100</a>
       </span>
     `);
-    expect(md).toContain("[CPEMGIS-100]");
-    expect(md).toContain("https://jira.example.com/browse/CPEMGIS-100");
+    expect(md).toContain("[KAFKA-100]");
+    expect(md).toContain("https://issues.apache.org/jira/browse/KAFKA-100");
   });
 });
 
@@ -377,6 +413,76 @@ describe("confluence code block", () => {
   });
 });
 
+describe("fabric code block (Confluence Cloud)", () => {
+  it("extracts code with language from data-code-lang attribute", () => {
+    const md = htmlToMarkdown(`
+      <span data-code-lang="json" data-ds--code--code-block="" data-testid="renderer-code-block">
+        <code class="language-json" style="white-space:pre">
+          <span data-testid="renderer-code-block-line-1" data-ds--code--row="">
+            <span class="comment linenumber ds-line-number" data-ds--line-number="1"></span>
+            <span class=""><span class="token punctuation">{</span><span class="">
+</span></span></span>
+          <span data-testid="renderer-code-block-line-2" data-ds--code--row="">
+            <span class="comment linenumber ds-line-number" data-ds--line-number="2"></span>
+            <span class=""><span class="">  </span><span class="token property">"some"</span><span class="token operator">:</span><span class=""> </span><span class="token string">"value"</span><span class="">
+</span></span></span>
+          <span data-testid="renderer-code-block-line-3" data-ds--code--row="">
+            <span class="comment linenumber ds-line-number" data-ds--line-number="3"></span>
+            <span class=""><span class="token punctuation">}</span></span></span>
+        </code>
+      </span>
+    `);
+    expect(md).toContain("```json");
+    expect(md).toContain('"some"');
+    expect(md).toContain('"value"');
+    expect(md).toContain("```");
+  });
+
+  it("extracts language from code class when data-code-lang is absent", () => {
+    const md = htmlToMarkdown(`
+      <span data-ds--code--code-block="" data-testid="renderer-code-block">
+        <code class="language-python" style="white-space:pre">
+          <span data-ds--code--row=""><span>print("hello")</span></span>
+        </code>
+      </span>
+    `);
+    expect(md).toContain("```python");
+    expect(md).toContain('print("hello")');
+  });
+
+  it("extracts language from code data-code-lang", () => {
+    const md = htmlToMarkdown(`
+      <span data-ds--code--code-block="" data-testid="renderer-code-block">
+        <code data-code-lang="sql" style="white-space:pre">
+          <span data-ds--code--row=""><span>select * from users;</span></span>
+        </code>
+      </span>
+    `);
+    expect(md).toContain("```sql");
+    expect(md).toContain("select * from users;");
+  });
+
+  it("handles fabric code block without language", () => {
+    const md = htmlToMarkdown(`
+      <span data-ds--code--code-block="" data-testid="renderer-code-block">
+        <code style="white-space:pre">
+          <span data-ds--code--row=""><span>plain text code</span></span>
+        </code>
+      </span>
+    `);
+    expect(md).toContain("```");
+    expect(md).toContain("plain text code");
+  });
+
+  it("returns empty when fabric code block has no code element", () => {
+    const md = htmlToMarkdown(`
+      <span data-ds--code--code-block="" data-testid="renderer-code-block">
+      </span>
+    `);
+    expect(md.trim()).toBe("");
+  });
+});
+
 describe("confluence task list", () => {
   it("converts checked and unchecked tasks to GFM task list", () => {
     const md = htmlToMarkdown(`
@@ -440,29 +546,19 @@ describe("unknown macro fallback", () => {
 
 describe("htmlToMarkdown integration", () => {
   it("converts the Confluence page fixture with expected custom output", async () => {
-    const html = await readFile(fixturePath, "utf8");
+    const html = await readFixtureText("confluence-page.html");
 
     const markdown = normalizeWhitespace(htmlToMarkdown(html));
 
-    expect(markdown).toContain("# Компонент Menu");
-    expect(markdown).toContain("Описание компонента меню для UI-кит.");
-    expect(markdown).toContain("| Свойство | Тип | По умолчанию | Описание |");
-    expect(markdown).toContain("| `items` | `MenuItem[]` | `[]` | Массив элементов меню |");
-    expect(markdown).toContain("| Default | #FFFFFF | #333333 |");
-    expect(markdown).toContain("| Default | #F5F5F5 | #666666 |");
-    expect(markdown).toContain("| Заголовок 1 и 2 | Заголовок 1 и 2 | Столбец 3 |");
-    expect(markdown).toContain("> **INFO**");
-    expect(markdown).toContain("> **WARNING**");
-    expect(markdown).toContain("> **NOTE**");
-    expect(markdown).toContain("> **TIP**");
-    expect(markdown).toContain("<summary>Дополнительные примеры</summary>");
-    expect(markdown).toContain("Скрытый контент спойлера с **форматированием**.");
-    expect(markdown).toContain(
-      "![Горизонтальное меню](/wiki/download/attachments/123456/menu-horizontal.png?version=1&modificationDate=1700000000000&api=v2)",
-    );
-    expect(markdown).toContain("[Связанная страница](https://wiki.example.com/pages/viewpage.action?pageId=789012)");
-    expect(markdown).toContain("<Menu items={items} mode=\"horizontal\" />");
-    expect(markdown).toContain("1.  Шаг 1");
+    expect(markdown).toContain("# Other blocks Page");
+    expect(markdown).toContain("lorem lorem");
+    expect(markdown).toContain("Some content 1");
+    expect(markdown).toContain("Some content 2");
+    expect(markdown).toContain("Some status");
+    expect(markdown).toContain("# Выбор макроса");
+    expect(markdown).toContain("#### Excel");
+    expect(markdown).toContain("JSM Incident Timeline");
+    expect(markdown).toContain("![");
     expect(markdown).not.toContain("enableNumbering");
     expect(markdown).not.toContain("toc-macro");
     expect(markdown).not.toContain("auto-cursor-target");

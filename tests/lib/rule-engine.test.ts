@@ -4,11 +4,14 @@ import {
   ALL_TABLES_CSV_PRESET,
   API_DOC_PRESET,
   applyRules,
+  DEFAULT_PRESET_ID,
   exportRules,
   FULL_PAGE_PRESET,
   GENERIC_PRESET,
   getPreset,
   importRules,
+  MD_ATTACHMENTS_PRESET,
+  MD_ONLY_PRESET,
   PRESETS,
   TABLES_ONLY_PRESET,
 } from "../../src/lib/rule-engine";
@@ -233,6 +236,49 @@ describe("applyRules", () => {
       },
     ]);
   });
+
+  it("does not export Confluence attachments macro tables as CSV", () => {
+    const html = `
+      <h1>Other blocks</h1>
+      <div class="conf-macro" data-macro-name="attachments">
+        <table class="confluenceTable">
+          <tr><th></th><th>Файл</th><th>Изменено</th></tr>
+          <tr><td colspan="3">Файлов еще нет. Загрузить файл</td></tr>
+        </table>
+      </div>
+      <table class="confluenceTable target">
+        <tr><th>Columnt 1</th><th>Columnt 2</th><th>Columnt 3</th></tr>
+        <tr><td>1</td><td>2</td><td>3</td></tr>
+      </table>
+    `;
+
+    const result = applyRules(html, [makeRule({ action: "to-csv", matcher: "table" })]);
+
+    expect(result.tables).toEqual([
+      {
+        csv: "Columnt 1,Columnt 2,Columnt 3\n1,2,3",
+        name: "other-blocks-01.csv",
+        section: "other-blocks",
+      },
+    ]);
+  });
+
+  it("tables-only preset removes real tables after CSV extraction", () => {
+    const html = `
+      <h1>Table Page</h1>
+      <p>Intro text</p>
+      <table class="confluenceTable">
+        <tr><th>Columnt 1</th><th>Columnt 2</th><th>Columnt 3</th></tr>
+        <tr><td>1</td><td>2</td><td>3</td></tr>
+      </table>
+    `;
+
+    const result = applyRules(html, TABLES_ONLY_PRESET.rules);
+
+    expect(result.tables).toHaveLength(1);
+    expect(result.tables[0].csv).toBe("Columnt 1,Columnt 2,Columnt 3\n1,2,3");
+    expect(parseMainHtml(result.mainHtml).querySelector("table")).toBeNull();
+  });
 });
 
 describe("presets", () => {
@@ -257,22 +303,26 @@ describe("presets", () => {
   });
 
   it("contains all built-in presets in PRESETS", () => {
-    expect(PRESETS).toEqual([
-      GENERIC_PRESET,
-      ALL_TABLES_CSV_PRESET,
-      FULL_PAGE_PRESET,
-      TABLES_ONLY_PRESET,
-      API_DOC_PRESET,
-    ]);
+    expect(PRESETS).toEqual([MD_ATTACHMENTS_PRESET, MD_ONLY_PRESET, TABLES_ONLY_PRESET]);
+    expect(DEFAULT_PRESET_ID).toBe("md-attachments");
   });
 
-  it("returns matching presets by id and falls back to GENERIC_PRESET for unknown ids", () => {
-    expect(getPreset("generic")).toBe(GENERIC_PRESET);
-    expect(getPreset("all-csv")).toBe(ALL_TABLES_CSV_PRESET);
-    expect(getPreset("full-page")).toBe(FULL_PAGE_PRESET);
+  it("returns matching presets by id and maps legacy ids to current presets", () => {
+    expect(getPreset("md-attachments")).toBe(MD_ATTACHMENTS_PRESET);
+    expect(getPreset("md-only")).toBe(MD_ONLY_PRESET);
     expect(getPreset("tables-only")).toBe(TABLES_ONLY_PRESET);
-    expect(getPreset("api-doc")).toBe(API_DOC_PRESET);
-    expect(getPreset("unknown-preset")).toBe(GENERIC_PRESET);
+    expect(getPreset("generic")).toBe(MD_ONLY_PRESET);
+    expect(getPreset("all-csv")).toBe(MD_ATTACHMENTS_PRESET);
+    expect(getPreset("full-page")).toBe(MD_ATTACHMENTS_PRESET);
+    expect(getPreset("api-doc")).toBe(MD_ATTACHMENTS_PRESET);
+    expect(getPreset("unknown-preset")).toBe(MD_ATTACHMENTS_PRESET);
+  });
+
+  it("keeps legacy preset constants importable for old rule export files", () => {
+    expect(GENERIC_PRESET.id).toBe("generic");
+    expect(ALL_TABLES_CSV_PRESET.id).toBe("all-csv");
+    expect(FULL_PAGE_PRESET.id).toBe("full-page");
+    expect(API_DOC_PRESET.id).toBe("api-doc");
   });
 });
 
@@ -336,6 +386,7 @@ describe("new presets", () => {
         matcher: "table.confluenceTable, div.table-wrap > table, table",
         action: "to-csv",
         enabled: true,
+        options: { removeAfterCsv: true },
       },
       {
         id: "tables-only-content-skip",

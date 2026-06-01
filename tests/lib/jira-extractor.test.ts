@@ -11,25 +11,25 @@ import type { JiraAttachment, JiraComment, JiraIssueMeta } from "../../src/types
 
 function makeIssueMeta(overrides: Partial<JiraIssueMeta> = {}): JiraIssueMeta {
   return {
-    key: "CPEMGIS-8140",
-    project: "CPEMGIS",
-    type: "Task",
-    status: "В РАБОТЕ",
-    priority: "Medium",
+    key: "KAFKA-15501",
+    project: "KAFKA",
+    type: "Improvement",
+    status: "Open",
+    priority: "Blocker",
     resolution: null,
-    summary: "Summary text",
-    assignee: "GuryanovMV",
-    reporter: "FedorovIT",
+    summary: "Kafka to KRaft combined mode migration v3.5",
+    assignee: "TestUser",
+    reporter: "TestReporter",
     labels: [],
-    components: [],
+    components: ["controller", "kraft"],
     versions: [],
     fixVersions: [],
-    epicLink: "CPEMGIS-4208",
-    created: "2025-01-15T10:30:00Z",
-    updated: "2025-01-16T11:00:00Z",
+    epicLink: null,
+    created: "2023-09-25T13:48:41+0000",
+    updated: "2026-04-06T12:11:18+0000",
     dueDate: null,
-    baseUrl: "https://jira.example.test",
-    url: "https://jira.example.test/browse/CPEMGIS-8140",
+    baseUrl: "https://issues.apache.org/jira",
+    url: "https://issues.apache.org/jira/browse/KAFKA-15501",
     ...overrides,
   };
 }
@@ -37,7 +37,7 @@ function makeIssueMeta(overrides: Partial<JiraIssueMeta> = {}): JiraIssueMeta {
 function makeComment(overrides: Partial<JiraComment> = {}): JiraComment {
   return {
     id: "10001",
-    author: "FedorovIT",
+    author: "TestReporter",
     createdAt: "2025-01-15T12:00:00Z",
     body: "<p>Comment</p>",
     markdown: "Comment body markdown",
@@ -51,7 +51,7 @@ function makeAttachment(overrides: Partial<JiraAttachment> = {}): JiraAttachment
     fileName: "design.png",
     mediaType: "image/png",
     fileSize: 2048,
-    contentUrl: "https://jira.example.test/secure/attachment/att-1/design.png",
+    contentUrl: "https://issues.apache.org/jira/secure/attachment/att-1/design.png",
     ...overrides,
   };
 }
@@ -62,21 +62,21 @@ describe("jiraIssueToMarkdown", () => {
       makeComment(),
     ]);
 
-    expect(markdown).toContain("---\nkey: CPEMGIS-8140");
-    expect(markdown).toContain("project: CPEMGIS");
-    expect(markdown).toContain("type: Task");
-    expect(markdown).toContain('status: "В РАБОТЕ"');
-    expect(markdown).toContain("priority: Medium");
+    expect(markdown).toContain("---\nkey: KAFKA-15501");
+    expect(markdown).toContain("project: KAFKA");
+    expect(markdown).toContain("type: Improvement");
+    expect(markdown).toContain("status: Open");
+    expect(markdown).toContain("priority: Blocker");
     expect(markdown).toContain("resolution: null");
-    expect(markdown).toContain("assignee: GuryanovMV");
-    expect(markdown).toContain("reporter: FedorovIT");
-    expect(markdown).toContain("epic: CPEMGIS-4208");
+    expect(markdown).toContain("assignee: TestUser");
+    expect(markdown).toContain("reporter: TestReporter");
+    expect(markdown).toContain("epic: null");
     expect(markdown).toContain("labels: []");
-    expect(markdown).toContain("components: []");
-    expect(markdown).toContain("created: 2025-01-15");
-    expect(markdown).toContain("# CPEMGIS-8140 — Summary text");
+    expect(markdown).toContain("components: [controller, kraft]");
+    expect(markdown).toContain("created: 2023-09-25");
+    expect(markdown).toContain("# KAFKA-15501 — Kafka to KRaft combined mode migration v3.5");
     expect(markdown).toContain("## Description\n\nDescription markdown");
-    expect(markdown).toContain("## Comments\n\n**FedorovIT** — 2025-01-15");
+    expect(markdown).toContain("## Comments\n\n**TestReporter** — 2025-01-15");
     expect(markdown).toContain("Comment body markdown");
   });
 
@@ -97,10 +97,10 @@ describe("jiraIssueToJson", () => {
     ]);
 
     expect(json).toMatchObject({
-      key: "CPEMGIS-8140",
-      project: "CPEMGIS",
-      type: "Task",
-      status: "В РАБОТЕ",
+      key: "KAFKA-15501",
+      project: "KAFKA",
+      type: "Improvement",
+      status: "Open",
       description: "Description markdown",
       comments: [comment],
       attachments: [attachment],
@@ -120,7 +120,7 @@ describe("jiraIssueToCsvRow", () => {
     const row = jiraIssueToCsvRow(makeIssueMeta());
 
     expect(row).toBe(
-      "CPEMGIS-8140,CPEMGIS,Task,В РАБОТЕ,Medium,,GuryanovMV,FedorovIT,CPEMGIS-4208,2025-01-15T10:30:00Z,2025-01-16T11:00:00Z",
+      "KAFKA-15501,KAFKA,Improvement,Open,Blocker,,TestUser,TestReporter,,2023-09-25T13:48:41+0000,2026-04-06T12:11:18+0000",
     );
   });
 
@@ -143,14 +143,14 @@ describe("jiraIssuesToCsv", () => {
   it("returns header and all issue rows", () => {
     const csv = jiraIssuesToCsv([
       makeIssueMeta(),
-      makeIssueMeta({ key: "CPEMGIS-8141", status: "DONE" }),
+      makeIssueMeta({ key: "KAFKA-15502", status: "Resolved" }),
     ]);
 
     expect(csv.split("\n")[0]).toBe(
       "key,project,type,status,priority,resolution,assignee,reporter,epic,created,updated",
     );
-    expect(csv).toContain("CPEMGIS-8140,CPEMGIS,Task,В РАБОТЕ");
-    expect(csv).toContain("CPEMGIS-8141,CPEMGIS,Task,DONE");
+    expect(csv).toContain("KAFKA-15501,KAFKA,Improvement,Open");
+    expect(csv).toContain("KAFKA-15502,KAFKA,Improvement,Resolved");
   });
 });
 
@@ -165,8 +165,10 @@ describe("extractJiraIssue", () => {
     expect(extracted.description).toBe("Description markdown");
     expect(extracted.comments).toEqual(comments);
     expect(extracted.attachments).toEqual(attachments);
-    expect(extracted.markdown).toContain("# CPEMGIS-8140 — Summary text");
-    expect(extracted.json).toMatchObject({ key: "CPEMGIS-8140" });
+    expect(extracted.markdown).toContain(
+      "# KAFKA-15501 — Kafka to KRaft combined mode migration v3.5",
+    );
+    expect(extracted.json).toMatchObject({ key: "KAFKA-15501" });
     expect(extracted.csvRow).toBe(jiraIssueToCsvRow(meta));
   });
 });

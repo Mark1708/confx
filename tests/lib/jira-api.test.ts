@@ -111,6 +111,25 @@ describe("JiraApi", () => {
     });
   });
 
+  it("getIssue preserves Jira base paths when building REST URLs", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(makeIssue("KAFKA-15501")));
+    const api = new JiraApi("https://issues.apache.org/jira");
+
+    await expect(api.getIssue("KAFKA-15501")).resolves.toMatchObject({
+      key: "KAFKA-15501",
+      baseUrl: "https://issues.apache.org/jira",
+      url: "https://issues.apache.org/jira/browse/KAFKA-15501",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://issues.apache.org/jira/rest/api/2/issue/KAFKA-15501",
+      {
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      },
+    );
+  });
+
   it("searchIssues encodes JQL and maxResults and maps each issue", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ issues: [makeIssue("DOC-1", "First"), makeIssue("DOC-2", "Second")], total: 2 }),

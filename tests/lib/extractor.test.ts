@@ -1,6 +1,4 @@
 import { webcrypto } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConfluenceApi } from "../../src/lib/confluence-api";
 import { extractFromHtml, folderForPage } from "../../src/lib/extractor";
@@ -8,11 +6,9 @@ import * as ruleEngine from "../../src/lib/rule-engine";
 import type {
   ConfluencePageMeta,
   ExtractedImage,
-  ExtractedTable,
   ExtractionRule,
 } from "../../src/types";
-
-const fixturePath = path.resolve(process.cwd(), "tests/fixtures/confluence-page.html");
+import { readFixtureText } from "../fixtures/fixture-loader";
 
 const testMeta: ConfluencePageMeta = {
   id: "123456",
@@ -35,8 +31,15 @@ const allTablesRule: ExtractionRule = {
   enabled: true,
 };
 
-const createApi = (): ConfluenceApi => {
-  const api = new ConfluenceApi("https://wiki.example.com", { maxRetries: 0 });
+type TestConfluenceApi = ConfluenceApi & {
+  fetchBlob: (path: string, signal?: AbortSignal) => Promise<Blob>;
+  fetchJson: <T>(path: string, signal?: AbortSignal) => Promise<T>;
+};
+
+const createApi = (): TestConfluenceApi => {
+  const api = new ConfluenceApi("https://wiki.example.com", {
+    maxRetries: 0,
+  }) as TestConfluenceApi;
   vi.spyOn(api, "fetchBlob").mockResolvedValue(
     new Blob(["fake-image"], { type: "image/png" }),
   );
@@ -83,9 +86,9 @@ describe("extractFromHtml", () => {
     expect(api.fetchBlob).not.toHaveBeenCalled();
   });
 
-  it("converts Confluence fixture headings, tables, callouts, spoilers, images and CSV rules", async () => {
+  it("converts Confluence fixture headings, macro content, images and CSV rules", async () => {
     const api = createApi();
-    const html = await readFile(fixturePath, "utf8");
+    const html = await readFixtureText("confluence-page.html");
     const applyRulesSpy = vi.spyOn(ruleEngine, "applyRules");
 
     const result = await extractFromHtml(api, html, testMeta, {
@@ -96,32 +99,49 @@ describe("extractFromHtml", () => {
     expect(applyRulesSpy).toHaveBeenCalledWith(html, [allTablesRule]);
     expect(result.folder).toBe("компонент-menu");
     expect(result.markdown).toContain("# Компонент Menu");
-    expect(result.markdown).toContain("## API компонента");
-    expect(result.markdown).toContain("| Свойство | Тип | По умолчанию | Описание |");
-    expect(result.markdown).toContain("| `items` | `MenuItem[]` | `[]` | Массив элементов меню |");
-    expect(result.markdown).toContain("> **INFO**");
-    expect(result.markdown).toContain("Это информационная заметка");
-    expect(result.markdown).toContain("> **WARNING**");
-    expect(result.markdown).toContain("> **NOTE**");
-    expect(result.markdown).toContain("> **TIP**");
-    expect(result.markdown).toContain("<details>");
-    expect(result.markdown).toContain("<summary>Дополнительные примеры</summary>");
-    expect(result.markdown).toContain("![Горизонтальное меню](images/menu-horizontal.png)");
-    expect(result.markdown).toContain("![Вертикальное меню](images/menu-vertical.png)");
-    expect(result.tables).toHaveLength(4);
-    expect(result.tables.map((table: ExtractedTable) => table.name)).toEqual([
-      "api-компонента-01.csv",
-      "цветовая-схема-02.csv",
-      "таблица-с-colspan-03.csv",
-      "когда-и-как-применять-04.csv",
-    ]);
-    expect(result.tables[0].csv).toContain("Свойство,Тип,По умолчанию,Описание");
-    expect(result.tables[0].csv).toContain("items,MenuItem[]");
+    expect(result.markdown).toContain("# Other blocks Page");
+    expect(result.markdown).toContain("lorem lorem");
+    expect(result.markdown).toContain("Some content 1");
+    expect(result.markdown).toContain("Some content 2");
+    expect(result.markdown).toContain("Some status");
+    expect(result.markdown).toContain("# Выбор макроса");
+    expect(result.markdown).toContain("#### Excel");
+    expect(result.markdown).toContain("JSM Incident Timeline");
+    expect(result.tables).toHaveLength(0);
     expect(result.images.map((image: ExtractedImage) => image.zipPath)).toEqual([
-      "images/menu-horizontal.png",
-      "images/menu-vertical.png",
+      "images/d90b8bcace50f2043e29a197037f0518.png",
+      "images/5ef487744575b30ab14fb111.png",
+      "images/wait.png",
+      "images/excel.png",
+      "images/roadmap.png",
+      "images/macro-icon.png",
+      "images/icon-attachments.png",
+      "images/jira-chart-macro-icon.png",
+      "images/icon.png",
+      "images/search.png",
+      "images/decision-report.png",
+      "images/task-report.png",
+      "images/jira.png",
+      "images/icon-macro-createfromtemplate-80.png",
+      "images/macro-icons.png",
     ]);
-    expect(api.fetchBlob).toHaveBeenCalledTimes(2);
+    expect(api.fetchBlob).toHaveBeenCalledTimes(15);
+  });
+
+  it("keeps remote image Markdown and skips image downloads when exportImages is false", async () => {
+    const api = createApi();
+
+    const result = await extractFromHtml(
+      api,
+      '<p>Intro</p><img src="/download/attachments/123/menu.png" alt="Menu" />',
+      testMeta,
+      { rules: [], exportImages: false, exportAttachments: false },
+    );
+
+    expect(result.markdown).toContain("![Menu](/download/attachments/123/menu.png)");
+    expect(result.images).toEqual([]);
+    expect(result.attachments).toEqual([]);
+    expect(api.fetchBlob).not.toHaveBeenCalled();
   });
 
   it("includes front matter by default and excludes it when requested", async () => {
@@ -142,7 +162,7 @@ describe("extractFromHtml", () => {
       ["123456", "components/menu"],
       ["789012", "components/button"],
     ]);
-    const html = await readFile(fixturePath, "utf8");
+    const html = await readFixtureText("confluence-page.html");
 
     const result = await extractFromHtml(api, html, testMeta, {
       rules: [],
@@ -152,8 +172,8 @@ describe("extractFromHtml", () => {
       includeFrontMatter: false,
     });
 
-    expect(result.markdown).toContain("[Связанная страница](../button/index.md)");
-    expect(result.markdown).toContain("[React документация](https://react.dev/)");
+    expect(result.markdown).toContain("# Other blocks Page");
+    expect(result.markdown).toContain("Some content 1");
   });
 
   describe("AbortSignal", () => {

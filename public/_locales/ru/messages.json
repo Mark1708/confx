@@ -1,0 +1,18 @@
+{
+  "extensionName": {
+    "message": "ConfX",
+    "description": "Название расширения для Chrome"
+  },
+  "extensionNameYandex": {
+    "message": "ConfX (Yandex)",
+    "description": "Название расширения для сборки Yandex Browser"
+  },
+  "extensionDescription": {
+    "message": "Экспортирует содержимое Confluence и Jira в Markdown, CSV и ZIP-архивы",
+    "description": "Описание расширения в манифесте"
+  },
+  "actionDefaultTitle": {
+    "message": "ConfX",
+    "description": "Заголовок кнопки расширения на панели браузера"
+  }
+}

@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Browser extension for exporting Confluence and Jira content to Markdown, CSV, and ZIP archives",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "vite",
     "dev:yandex": "TARGET=yandex vite",
@@ -19,6 +22,10 @@
     "release:all": "npm run release:chrome && npm run release:yandex && npm run checksums",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css,json}\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
@@ -48,7 +55,7 @@
     "turndown-plugin-gfm": "^1.0.2"
   },
   "devDependencies": {
-    "@crxjs/vite-plugin": "^2.0.0-beta.28",
+    "@eslint/js": "^9.39.4",
     "@types/chrome": "^0.0.280",
     "@types/node": "^22.7.5",
     "@types/react": "^18.3.11",
@@ -58,10 +65,18 @@
     "@vitest/coverage-v8": "^4.1.7",
     "autoprefixer": "^10.4.20",
     "crx3": "^2.0.0",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.6",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
     "jsdom": "^29.1.1",
     "postcss": "^8.4.47",
+    "prettier": "^3.8.3",
     "tailwindcss": "^3.4.13",
     "typescript": "^5.6.3",
+    "typescript-eslint": "^8.60.0",
     "vite": "^5.4.9",
     "vitest": "^4.1.7"
   }

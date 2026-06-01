@@ -1,5 +1,5 @@
-import { defineConfig } from "vitest/config";
 import path from "node:path";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
@@ -12,12 +12,17 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     coverage: {
       provider: "v8",
-      include: ["src/lib/**/*.ts"],
+      include: [
+        "src/lib/**/*.ts",
+        "src/sidepanel/**/*.ts",
+        "src/background/**/*.ts",
+        "src/content/**/*.ts",
+      ],
       thresholds: {
-        statements: 60,
-        branches: 50,
-        functions: 60,
-        lines: 60,
+        statements: 44,
+        branches: 44,
+        functions: 52,
+        lines: 45,
       },
     },
   },

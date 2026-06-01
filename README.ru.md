@@ -16,8 +16,6 @@
 | Host-браузеры | Chrome / Chromium, Яндекс Браузер |
 | Основной стек | Manifest V3, React 18, TypeScript, Vite, CRXJS, Tailwind CSS |
 | Release-артефакты | `confx-chrome.zip`, `confx-yandex.crx`, `SHA256SUMS` |
-| Быстрая проверка | `npm ci && npm run typecheck && npm test && npm run build:chrome` |
-| Полная release-проверка | `npm ci && npm run release:all` (требуется Yandex signing key) |
 
 ## Что выгружает ConfX
 
@@ -43,9 +41,74 @@ confluence-page.zip
 - **Вложения** -- вложения страницы до настроенного лимита размера.
 - **manifest.json** -- хост-источник, page ID, заголовок, версия, пространство, метки, метка времени экспорта.
 
+### Пресеты экспорта
+
+- **Markdown + вложения** -- создаёт Markdown-страницы, оставляет таблицы в Markdown, скачивает inline-изображения и включает вложения страницы, если они разрешены настройками.
+- **Только Markdown** -- создаёт Markdown-страницы и оставляет таблицы в Markdown. Изображения и файлы вложений не скачиваются.
+- **Только CSV-таблицы** -- создаёт CSV только для реальных пользовательских таблиц. Markdown-страницы, изображения, вложения и служебные таблицы Confluence исключаются.
+
 ## Скриншоты
 
-Скриншоты будут добавлены перед публикацией в Chrome Web Store.
+<p align="center">
+  <img src="docs/screenshots-ru/chrome-sidebar.jpeg" alt="Боковая панель ConfX на странице Confluence" width="720">
+</p>
+
+<details>
+<summary><strong>Скриншоты возможностей</strong></summary>
+
+### Плавающая кнопка
+
+<p align="center">
+  <img src="docs/screenshots-ru/confluence-button.jpeg" alt="Плавающая кнопка Открыть в ConfX на странице Confluence" width="720">
+</p>
+
+### Выгрузка страницы Confluence
+
+<p align="center">
+  <img src="docs/screenshots-ru/confluence-page-tab.jpeg" alt="Вкладка Page с информацией о текущей странице и rule set" width="360">
+  <img src="docs/screenshots-ru/confluence-page-tab-white.jpeg" alt="Вкладка Page в светлой теме" width="360">
+</p>
+
+### Выгрузка пространства
+
+<p align="center">
+  <img src="docs/screenshots-ru/space-tab.jpeg" alt="Вкладка Space с фильтром по меткам и количеством страниц" width="360">
+</p>
+
+### Выгрузка поддерева
+
+<p align="center">
+  <img src="docs/screenshots-ru/tree-tab-with-export.jpeg" alt="Вкладка Tree с деревом страниц и диалогом сохранения" width="360">
+  <img src="docs/screenshots-ru/tree-tab-download.jpeg" alt="Вкладка Tree -- прогресс загрузки" width="360">
+</p>
+
+### Выгрузка Jira issue
+
+<p align="center">
+  <img src="docs/screenshots-ru/jira-tab.jpeg" alt="Вкладка Jira с полем JQL-запроса" width="360">
+</p>
+
+### Блок-пикер
+
+<p align="center">
+  <img src="docs/screenshots-ru/picker-page.jpeg" alt="Инструмент выбора блока на странице" width="360">
+</p>
+
+### Watch (экспериментально)
+
+<p align="center">
+  <img src="docs/screenshots-ru/listen-tab.jpeg" alt="Вкладка Watch со списком подписок" width="360">
+  <img src="docs/screenshots-ru/listen-tab-with-edit.jpeg" alt="Вкладка Watch с обнаруженными изменениями" width="360">
+</p>
+
+### Настройки и правила
+
+<p align="center">
+  <img src="docs/screenshots-ru/settings-tab.jpeg" alt="Вкладка Settings" width="360">
+  <img src="docs/screenshots-ru/settings-rule.jpeg" alt="Консоль правил экспорта с preset и custom rules" width="720">
+</p>
+
+</details>
 
 ## Возможности
 
@@ -56,6 +119,27 @@ confluence-page.zip
 - **Watch** *(экспериментально)*: сохранение snapshots и просмотр изменений во времени.
 - **Jira support**: извлечение содержимого Jira issue, если текущая вкладка открыта на задаче.
 - **Rule engine**: настройка правил извлечения секций и таблиц под соглашения страниц Confluence.
+
+## Определение страниц и плавающие кнопки
+
+ConfX подключает content script к HTTP/HTTPS-страницам, но плавающая кнопка **Открыть в ConfX** показывается только когда страница распознана как Confluence или Jira.
+
+- Confluence сначала определяется по Atlassian metadata, например `ajs-page-id`, затем по известным Confluence URL routes.
+- Jira сначала определяется по `ajs-issue-key`, затем по известным маршрутам задач, например `/browse/KEY-123`.
+- Обычные страницы, где в URL случайно встречается значение вроде `ABC-123`, игнорируются, чтобы уменьшить false positives.
+
+Кнопку можно независимо отключить для Confluence и Jira в **Настройках**. Там же есть диагностика текущей вкладки: тип страницы, host, источник определения и состояние видимости кнопок.
+
+## Хранение Watch-подписок
+
+Watch-подписки хранятся локально в browser profile и не отправляются во внешний сервис.
+
+- Область хранения: `chrome.storage.local`.
+- Troubleshooting key: `cx.subscriptions.v1`.
+- Каждая подписка хранит baseline snapshot и ограниченную локальную историю проверок.
+- Принятие изменений обновляет baseline snapshot, но сохраняет недавнюю историю проверок.
+
+Если проверка нашла добавленные или изменённые страницы, ConfX может выгрузить выбранные изменённые страницы в один ZIP с отчётом `watch-diff.json`. Удалённые страницы попадают в отчёт, но не скачиваются как контент.
 
 ## Безопасность и конфиденциальность
 
@@ -211,6 +295,8 @@ Manual browser smoke checks перед публичным релизом:
 | Yandex extension ID изменился | Проверьте signing key и `YANDEX_EXTENSION_ID`. Другой ключ создаёт другую extension identity. |
 | Side panel обрезается | Используйте свежий релиз; узкие Chrome side panel layouts поддерживаются явно. |
 | Export падает на странице | Проверьте, что вы залогинены в Confluence/Jira в том же browser profile. |
+| Изображения или вложения отсутствуют | Проверьте, что browser session может открыть эти файлы напрямую. Auth, CORS, лимит размера или истёкшая сессия могут блокировать скачивание. |
+| Кнопка появилась не на том сайте | Откройте Настройки и проверьте диагностику текущей вкладки. При необходимости отключите кнопки Confluence/Jira. |
 
 ## Структура проекта
 

@@ -16,8 +16,6 @@
 | Host browsers | Chrome / Chromium, Yandex Browser |
 | Primary stack | Manifest V3, React 18, TypeScript, Vite, CRXJS, Tailwind CSS |
 | Release artifacts | `confx-chrome.zip`, `confx-yandex.crx`, `SHA256SUMS` |
-| Quick verification | `npm ci && npm run typecheck && npm test && npm run build:chrome` |
-| Full release verification | `npm ci && npm run release:all` (requires Yandex signing key) |
 
 ## What ConfX exports
 
@@ -43,9 +41,74 @@ confluence-page.zip
 - **Attachments** -- page attachments up to the configured size limit.
 - **manifest.json** -- source host, page ID, title, version, space, labels, export timestamp.
 
+### Export presets
+
+- **Markdown + attachments** -- creates Markdown pages, keeps tables in Markdown, downloads inline images, and includes page attachments when enabled.
+- **Markdown only** -- creates Markdown pages and keeps tables in Markdown. Images and file attachments are not downloaded.
+- **CSV tables only** -- creates CSV files for real user tables only. Markdown pages, images, attachments, and Confluence UI tables are excluded.
+
 ## Screenshots
 
-Screenshots will be added before Chrome Web Store publishing.
+<p align="center">
+  <img src="docs/screenshots/chrome-sidebar.png" alt="ConfX side panel opened on a Confluence page" width="720">
+</p>
+
+<details>
+<summary><strong>Feature screenshots</strong></summary>
+
+### Floating button
+
+<p align="center">
+  <img src="docs/screenshots/confluence-button.jpeg" alt="Floating Open in ConfX button on a Confluence page" width="720">
+</p>
+
+### Confluence page export
+
+<p align="center">
+  <img src="docs/screenshots/confluence-page-tab.jpeg" alt="Page extraction tab with current page info and rule set" width="360">
+  <img src="docs/screenshots/confluence-page-tab-white.jpeg" alt="Page extraction tab in light theme" width="360">
+</p>
+
+### Space export
+
+<p align="center">
+  <img src="docs/screenshots/space-tab.jpeg" alt="Space export tab with label filter and page count" width="360">
+</p>
+
+### Subtree export
+
+<p align="center">
+  <img src="docs/screenshots/tree-tab-with-export.jpeg" alt="Tree export with page tree selector and save dialog" width="360">
+  <img src="docs/screenshots/tree-tab-download.jpeg" alt="Tree export download progress" width="360">
+</p>
+
+### Jira issue export
+
+<p align="center">
+  <img src="docs/screenshots/jira-tab.jpeg" alt="Jira issue extraction tab with JQL query field" width="360">
+</p>
+
+### Block picker
+
+<p align="center">
+  <img src="docs/screenshots/picker-page.jpeg" alt="Block picker tool for selecting a page section" width="360">
+</p>
+
+### Watch (experimental)
+
+<p align="center">
+  <img src="docs/screenshots/listen-tab.jpeg" alt="Watch tab with subscriptions list" width="360">
+  <img src="docs/screenshots/listen-tab-with-edit.jpeg" alt="Watch tab showing detected changes" width="360">
+</p>
+
+### Settings and rules
+
+<p align="center">
+  <img src="docs/screenshots/settings-tab.jpeg" alt="Settings tab" width="360">
+  <img src="docs/screenshots/settings-rule.png" alt="Export rules console with preset and custom rules" width="720">
+</p>
+
+</details>
 
 ## Features
 
@@ -56,6 +119,27 @@ Screenshots will be added before Chrome Web Store publishing.
 - **Watch** *(experimental)*: track saved snapshots and inspect changes over time.
 - **Jira support**: extract useful Jira issue content when the current tab is a Jira issue.
 - **Rule engine**: configure section/table extraction rules for Confluence page conventions.
+
+## Page detection and floating buttons
+
+ConfX injects a content script on HTTP/HTTPS pages, but the floating **Open in ConfX** button is shown only when the page is detected as Confluence or Jira.
+
+- Confluence detection prefers Atlassian metadata such as `ajs-page-id`, then known Confluence URL routes.
+- Jira detection prefers `ajs-issue-key`, then known Jira issue routes such as `/browse/KEY-123`.
+- Generic paths that merely contain values like `ABC-123` are ignored to reduce false positives.
+
+The button can be disabled independently for Confluence and Jira in **Settings**. The Settings panel also includes current-tab diagnostics showing detected kind, host, source, and button visibility state.
+
+## Watch storage
+
+Watch subscriptions are stored locally in the browser profile. They are not sent to a remote service.
+
+- Storage area: `chrome.storage.local`.
+- Troubleshooting key: `cx.subscriptions.v1`.
+- Each subscription stores a baseline snapshot plus a bounded local check history.
+- Accepting changes updates the baseline snapshot but keeps recent check history.
+
+When a check finds added or changed pages, ConfX can export the selected changed pages into a single ZIP that includes a `watch-diff.json` report. Removed pages are reported but not fetched for content export.
 
 ## Security and privacy
 
@@ -212,6 +296,8 @@ Manual browser smoke checks before a public release:
 | Yandex extension ID changed | Verify the signing key and `YANDEX_EXTENSION_ID`. A different key creates a different extension identity. |
 | Side panel looks clipped | Use the latest release; narrow Chrome side panel layouts are explicitly supported. |
 | Export fails on a page | Confirm you are logged in to Confluence/Jira in the same browser profile. |
+| Images or attachments are missing | Confirm the browser session can open those files directly. Auth, CORS, file size limits, or expired sessions can prevent downloads. |
+| Floating button appears on the wrong site | Open Settings and check current-tab diagnostics. Disable Confluence/Jira buttons if you do not want page-level controls. |
 
 ## Project structure
 

@@ -1,7 +1,7 @@
-import { strToU8, Zip, ZipDeflate } from "fflate";
+import { strToU8, Zip } from "fflate";
+import { addZipEntry } from "@/lib/zip-compression";
 
 export const ZIP_MIME_TYPE = "application/zip";
-export const DEFLATE_LEVEL = 6;
 
 export function createZip(): { zip: Zip; chunks: Uint8Array[] } {
   const chunks: Uint8Array[] = [];
@@ -14,9 +14,7 @@ export function createZip(): { zip: Zip; chunks: Uint8Array[] } {
 }
 
 export function addFile(zip: Zip, path: string, data: Uint8Array): void {
-  const file = new ZipDeflate(path, { level: DEFLATE_LEVEL });
-  zip.add(file);
-  file.push(data, true);
+  addZipEntry(zip, path, data);
 }
 
 export function addStringFile(zip: Zip, path: string, content: string): void {

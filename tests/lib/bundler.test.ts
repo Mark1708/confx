@@ -123,7 +123,71 @@ describe("bundleExtractedPages", () => {
     expect(hasEntry(entries, "export/page-a/index.md")).toBe(true);
     expect(hasEntry(entries, "export/page-b/index.md")).toBe(true);
   });
+
+  it("round-trips a large (>1MB) pre-compressed .docx attachment byte-exact", async () => {
+    // Regression guard: a large incompressible binary attachment (the exact
+    // scenario that produced a corrupt deflate stream). STORE mode must
+    // preserve the bytes verbatim.
+    const size = 1_200_003;
+    const original = deterministicBytes(size, 42);
+    const blob_ = new Blob([original], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+    const pages = [
+      makePage({
+        attachments: [
+          {
+            sourceUrl: "/dl/arch.docx",
+            zipPath: "attachments/arch.docx",
+            blob: blob_,
+            hash: "arch-hash",
+            fileName: "Архитектура v1.1.docx",
+            mediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            fileSize: size,
+          },
+        ],
+      }),
+    ];
+    const zipBlob = await bundleExtractedPages(pages, { rootName: "export" });
+    const entries = await extractZip(zipBlob);
+
+    const got = entries["export/test-page/attachments/arch.docx"];
+    expect(got).toBeDefined();
+    expect(got.length).toBe(size);
+    expect(Array.from(got)).toEqual(Array.from(original));
+  });
+
+  it("round-trips a large .png image byte-exact", async () => {
+    const size = 600_001;
+    const original = deterministicBytes(size, 7);
+    const blob_ = new Blob([original], { type: "image/png" });
+    const pages = [
+      makePage({
+        images: [{ sourceUrl: "/i/d.png", zipPath: "images/d.png", blob: blob_, hash: "png-hash" }],
+      }),
+    ];
+    const zipBlob = await bundleExtractedPages(pages, { rootName: "export" });
+    const entries = await extractZip(zipBlob);
+
+    const got = entries["export/test-page/images/d.png"];
+    expect(got).toBeDefined();
+    expect(Array.from(got)).toEqual(Array.from(original));
+  });
 });
+
+// Deterministic pseudo-random bytes (xorshift32) — incompressible, mimicking
+// the entropy of an already-compressed office document.
+function deterministicBytes(n: number, seed: number): Uint8Array<ArrayBuffer> {
+  const out = new Uint8Array(new ArrayBuffer(n));
+  let s = seed >>> 0;
+  for (let i = 0; i < n; i += 1) {
+    s ^= s << 13;
+    s >>>= 0;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    s >>>= 0;
+    out[i] = s & 0xff;
+  }
+  return out;
+}
 
 describe("blobToBase64", () => {
   it("converts a text blob to base64", async () => {

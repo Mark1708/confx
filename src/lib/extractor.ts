@@ -5,7 +5,7 @@ import type {
   ExtractionRule,
 } from "@/types";
 import { fetchAttachments } from "./attachment-fetcher";
-import { commentsToMarkdown, fetchComments } from "./comment-fetcher";
+import { commentsToMarkdown, fetchComments, fetchInlineComments } from "./comment-fetcher";
 import type { ConfluenceApi } from "./confluence-api";
 import { buildFrontMatter } from "./front-matter";
 import { fetchHistory } from "./history-fetcher";
@@ -115,23 +115,25 @@ export async function extractFromHtml(
   const title = `# ${meta.title}\n\n`;
   const markdown = fm + title + md;
 
-  // Fetch comments if enabled
-  const comments = opts.includeComments ? await fetchComments(meta.id, api, opts.signal) : [];
+  const [comments, inlineComments, history] = await Promise.all([
+    opts.includeComments ? fetchComments(meta.id, api, opts.signal) : Promise.resolve([]),
+    opts.includeComments ? fetchInlineComments(meta.id, api, opts.signal) : Promise.resolve([]),
+    opts.includeHistory ? fetchHistory(meta.id, api, opts.signal) : Promise.resolve([]),
+  ]);
 
-  // Fetch history if enabled
-  const history = opts.includeHistory ? await fetchHistory(meta.id, api, opts.signal) : [];
-
-  // Append comments to markdown if present
-  const fullMarkdown = comments.length > 0 ? markdown + commentsToMarkdown(comments) : markdown;
+  const commentsMarkdown = commentsToMarkdown(comments, inlineComments);
+  const commentCount =
+    comments.length +
+    inlineComments.reduce((total, comment) => total + 1 + comment.replies.length, 0);
 
   // Rebuild front matter with actual counts
   const finalMarkdown =
     opts.includeFrontMatter !== false
-      ? buildFrontMatter(meta, { commentCount: comments.length, versionCount: history.length }) +
+      ? buildFrontMatter(meta, { commentCount, versionCount: history.length }) +
         title +
         md +
-        (comments.length > 0 ? commentsToMarkdown(comments) : "")
-      : fullMarkdown;
+        commentsMarkdown
+      : markdown + commentsMarkdown;
 
   return {
     meta,
@@ -140,6 +142,7 @@ export async function extractFromHtml(
     images,
     attachments,
     comments,
+    inlineComments,
     history,
     folder,
   };

@@ -176,6 +176,78 @@ describe("extractFromHtml", () => {
     expect(result.markdown).toContain("Some content 1");
   });
 
+
+  it("fetches page and inline comments when comments export is enabled", async () => {
+    const api = createApi();
+    vi.spyOn(api, "fetchJson").mockImplementation(async (path) => {
+      if (path === "/rest/api/content/123456/comment?expand=body.view,version") {
+        return {
+          results: [
+            {
+              id: "page-comment-1",
+              body: { view: { value: "<p>Page comment</p>" } },
+              version: { by: { displayName: "Page Alice" }, when: "2025-01-01T00:00:00Z" },
+            },
+          ],
+        } as never;
+      }
+      if (path === "/rest/inlinecomments/1.0/comments?containerId=123456") {
+        return [
+          {
+            id: "inline-1",
+            authorDisplayName: "Inline Bob",
+            lastModificationDate: "2025-01-02T00:00:00Z",
+            body: "<p>Inline body</p>",
+            originalSelection: "fragment",
+            markerRef: "marker-1",
+          },
+        ] as never;
+      }
+      if (path === "/rest/inlinecomments/1.0/comments/inline-1/replies") {
+        return [
+          {
+            id: "reply-1",
+            authorDisplayName: "Reply Carol",
+            lastModificationDate: "2025-01-03T00:00:00Z",
+            body: "<p>Reply body</p>",
+          },
+        ] as never;
+      }
+      throw new Error(`Unexpected path: ${path}`);
+    });
+
+    const result = await extractFromHtml(api, "<p>Текст</p>", testMeta, {
+      rules: [],
+      exportImages: false,
+      exportAttachments: false,
+      includeComments: true,
+    });
+
+    expect(result.comments).toHaveLength(1);
+    expect(result.inlineComments).toHaveLength(1);
+    expect(result.inlineComments[0].replies).toHaveLength(1);
+    expect(result.markdown).toContain("comments: 3");
+    expect(result.markdown).toContain("<!-- confx:comments:start -->");
+    expect(result.markdown).toContain("### Page comments");
+    expect(result.markdown).toContain("### Inline comments");
+  });
+
+  it("does not fetch page or inline comments when comments export is disabled", async () => {
+    const api = createApi();
+    const fetchJson = vi.spyOn(api, "fetchJson");
+
+    const result = await extractFromHtml(api, "<p>Текст</p>", testMeta, {
+      rules: [],
+      exportImages: false,
+      exportAttachments: false,
+      includeComments: false,
+    });
+
+    expect(fetchJson).not.toHaveBeenCalled();
+    expect(result.comments).toEqual([]);
+    expect(result.inlineComments).toEqual([]);
+    expect(result.markdown).not.toContain("<!-- confx:comments:start -->");
+  });
   describe("AbortSignal", () => {
     it("extractFromHtml with pre-aborted signal returns partial result", async () => {
       const api = createApi();

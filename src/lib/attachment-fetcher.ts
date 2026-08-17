@@ -4,7 +4,7 @@ import type { ImageDedup } from "./image-fetcher";
 import { slugify } from "./table-to-csv";
 
 async function sha256Hex(buf: ArrayBuffer): Promise<string> {
-  const h = await crypto.subtle.digest("SHA-256", buf);
+  const h = await crypto.subtle.digest("SHA-256", new Uint8Array(buf));
   return Array.from(new Uint8Array(h))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");

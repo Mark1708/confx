@@ -20,7 +20,51 @@ export interface ButtonConfig<TKind extends ButtonPageKind> {
   logPrefix: string;
 }
 
-export function createFloatingButton<TKind extends ButtonPageKind>(config: ButtonConfig<TKind>): { init: () => void } {
+const DEBOUNCE_MS = 150;
+
+/**
+ * Leading+trailing throttle for an async reconcile, with a reentrancy guard.
+ * Trailing edge fires only when additional calls arrive within the delay
+ * window after the leading edge. Exported for direct unit testing.
+ */
+export function createDebouncedReconcile(
+  reconcile: () => Promise<void>,
+  delay: number = DEBOUNCE_MS,
+): () => void {
+  let burstTimer: number | undefined;
+  let reconciling = false;
+
+  const safeReconcile = async (): Promise<void> => {
+    if (reconciling) return;
+    reconciling = true;
+    try {
+      await reconcile();
+    } finally {
+      reconciling = false;
+    }
+  };
+
+  return (): void => {
+    if (burstTimer === undefined) {
+      // Idle period: leading edge fires immediately. Schedule a guard timer
+      // that admits a trailing edge only if a subsequent call reschedules it.
+      burstTimer = setTimeout(() => {
+        burstTimer = undefined;
+      }, delay) as unknown as number;
+      void safeReconcile();
+      return;
+    }
+    clearTimeout(burstTimer);
+    burstTimer = setTimeout(() => {
+      burstTimer = undefined;
+      void safeReconcile();
+    }, delay) as unknown as number;
+  };
+}
+
+export function createFloatingButton<TKind extends ButtonPageKind>(
+  config: ButtonConfig<TKind>,
+): { init: () => void } {
   let buttonLabel = FALLBACK_BUTTON_LABEL;
   let showButton: boolean | null = null;
   let settingsLoadPromise: Promise<boolean> | null = null;
@@ -134,10 +178,12 @@ export function createFloatingButton<TKind extends ButtonPageKind>(config: Butto
     void reconcile();
 
     if (observer) return;
-    observer = new MutationObserver(() => {
-      void reconcile();
-    });
+    observer = new MutationObserver(createDebouncedReconcile(reconcile));
     observer.observe(document.documentElement, { childList: true, subtree: true });
+
+    // Defensive cleanup: content scripts are usually torn down on full navigation,
+    // but disconnecting on pagehide is cheap insurance against leak scenarios.
+    window.addEventListener("pagehide", () => observer?.disconnect(), { once: true });
   }
 
   return { init };

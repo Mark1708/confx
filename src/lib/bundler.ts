@@ -116,6 +116,15 @@ export async function bundleExtractedPages(
       addStringFile(zip, getZipPath(opts.rootName, `${pagePrefix}comments.json`), commentsJson);
     }
 
+    if (page.inlineComments.length > 0) {
+      const inlineCommentsJson = JSON.stringify(page.inlineComments, null, 2);
+      addStringFile(
+        zip,
+        getZipPath(opts.rootName, `${pagePrefix}inline-comments.json`),
+        inlineCommentsJson,
+      );
+    }
+
     if (page.history.length > 0) {
       const historyJson = JSON.stringify(page.history, null, 2);
       addStringFile(zip, getZipPath(opts.rootName, `${pagePrefix}history.json`), historyJson);

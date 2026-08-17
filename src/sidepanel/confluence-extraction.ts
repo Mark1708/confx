@@ -32,13 +32,7 @@ import {
   type ProgressHandler,
   type ProgressTranslator,
 } from "./progress";
-import {
-  addFile,
-  addStringFile,
-  blobToUint8Array,
-  chunksToZipBlob,
-  createZip,
-} from "./zip-utils";
+import { addFile, addStringFile, blobToUint8Array, chunksToZipBlob, createZip } from "./zip-utils";
 
 export async function extractPage(
   req: ExtractPageRequest,
@@ -61,6 +55,8 @@ export async function extractPage(
     exportImages: exportPresetAssets,
     exportAttachments: shouldExportPresetAttachments(preset.id, settings),
     maxAttachmentSize: settings.maxAttachmentSize,
+    includeComments: settings.includeComments,
+    includeHistory: settings.includeHistory,
     signal,
   });
   p(onProgress, 1, 1, t("export.progress.buildingArchive"));
@@ -122,6 +118,8 @@ export async function extractWatchChanged(
         exportImages: exportPresetAssets,
         exportAttachments: shouldExportPresetAttachments(preset.id, settings),
         maxAttachmentSize: settings.maxAttachmentSize,
+        includeComments: settings.includeComments,
+        includeHistory: settings.includeHistory,
         signal,
       }),
     );
@@ -172,6 +170,8 @@ export async function extractBlock(
     exportImages: exportPresetAssets,
     exportAttachments: shouldExportPresetAttachments(preset.id, settings),
     maxAttachmentSize: settings.maxAttachmentSize,
+    includeComments: settings.includeComments,
+    includeHistory: settings.includeHistory,
     signal,
   });
   p(onProgress, 1, 1, t("export.progress.buildingArchive"));
@@ -254,6 +254,8 @@ export async function extractSubtree(
         exportImages: exportPresetAssets,
         exportAttachments: shouldExportPresetAttachments(preset.id, settings),
         maxAttachmentSize: settings.maxAttachmentSize,
+        includeComments: settings.includeComments,
+        includeHistory: settings.includeHistory,
         signal,
       });
       pages.push(page);
@@ -351,6 +353,8 @@ export async function extractSpace(
         exportImages: exportPresetAssets,
         exportAttachments: shouldExportPresetAttachments(preset.id, settings),
         maxAttachmentSize: settings.maxAttachmentSize,
+        includeComments: settings.includeComments,
+        includeHistory: settings.includeHistory,
         signal,
       });
       pages.push(page);
@@ -514,6 +518,13 @@ export function addPageMetadataFiles(
       JSON.stringify(page.comments, null, 2),
     );
   }
+  if (page.inlineComments.length > 0) {
+    addStringFile(
+      zip,
+      `${rootName}/${pagePrefix}inline-comments.json`,
+      JSON.stringify(page.inlineComments, null, 2),
+    );
+  }
   if (page.history.length > 0) {
     addStringFile(
       zip,
@@ -562,6 +573,8 @@ export async function extractSubtreePage(args: SubtreePageArgs): Promise<Extract
     exportImages: args.exportImages,
     exportAttachments: args.exportAttachments,
     maxAttachmentSize: args.maxAttachmentSize,
+    includeComments: args.includeComments,
+    includeHistory: args.includeHistory,
     signal: args.signal,
   });
 }

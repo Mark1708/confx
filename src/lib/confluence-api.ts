@@ -127,6 +127,104 @@ export class ConfluenceApi extends HttpClient {
     );
   }
 
+  async createPage(
+    input: {
+      title: string;
+      spaceKey: string;
+      parentId?: string;
+      storage: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<ConfluencePageRaw> {
+    const payload: Record<string, unknown> = {
+      type: "page",
+      title: input.title,
+      space: { key: input.spaceKey },
+    };
+    if (input.parentId) payload.ancestors = [{ id: input.parentId }];
+    payload.body = {
+      storage: {
+        value: input.storage,
+        representation: "storage",
+      },
+    };
+
+    return this.requestJson<ConfluencePageRaw>(
+      "/rest/api/content",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+      signal,
+    );
+  }
+
+  async updatePage(
+    input: {
+      id: string;
+      title: string;
+      spaceKey: string;
+      storage: string;
+      version: number;
+    },
+    signal?: AbortSignal,
+  ): Promise<ConfluencePageRaw> {
+    return this.requestJson<ConfluencePageRaw>(
+      `/rest/api/content/${input.id}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: input.id,
+          type: "page",
+          title: input.title,
+          space: { key: input.spaceKey },
+          version: { number: input.version },
+          body: {
+            storage: {
+              value: input.storage,
+              representation: "storage",
+            },
+          },
+        }),
+      },
+      signal,
+    );
+  }
+
+  async renderStorage(storage: string, signal?: AbortSignal): Promise<string> {
+    const response = await this.requestJson<{ value?: string }>(
+      "/rest/api/contentbody/convert/view",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ representation: "storage", value: storage }),
+      },
+      signal,
+    );
+    return response.value ?? "";
+  }
+
+  async uploadAttachment(
+    pageId: string,
+    file: File,
+    signal?: AbortSignal,
+  ): Promise<ConfluenceAttachmentRaw[]> {
+    const body = new FormData();
+    body.set("file", file);
+    const response = await this.requestJson<{ results?: ConfluenceAttachmentRaw[] }>(
+      `/rest/api/content/${pageId}/child/attachment`,
+      {
+        method: "POST",
+        headers: { "X-Atlassian-Token": "nocheck" },
+        body,
+      },
+      signal,
+    );
+    return response.results ?? [];
+  }
+
   async getChildren(
     pageId: string,
     limit = 100,

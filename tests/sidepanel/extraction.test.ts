@@ -38,6 +38,18 @@ describe("sidepanel extraction", () => {
 				return jsonResponse({ results: [], size: 0 });
 			}
 
+			if (url.pathname === "/rest/api/content/root/comment") {
+				return jsonResponse({ results: [] });
+			}
+
+			if (url.pathname === "/rest/inlinecomments/1.0/comments") {
+				return jsonResponse([]);
+			}
+
+			if (url.pathname === "/rest/api/content/root/version") {
+				return jsonResponse({ results: [] });
+			}
+
 			throw new Error(`Unexpected request: ${url.toString()}`);
 		});
 

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchHistory } from "../../src/lib/history-fetcher";
 import type { ConfluenceApi } from "../../src/lib/confluence-api";
+import { ApiError } from "../../src/types";
 
 function createMockApi(overrides: Partial<ConfluenceApi> = {}): ConfluenceApi {
   return {
@@ -127,6 +128,16 @@ describe("fetchHistory", () => {
     const history = await fetchHistory("123", api);
 
     expect(history).toEqual([]);
+  });
+
+  it("returns empty array when version history endpoint is unsupported", async () => {
+    const api = createMockApi({
+      fetchJson: vi
+        .fn()
+        .mockRejectedValue(new ApiError("missing", 404, "Not Found", "/rest/api/content/123/version")),
+    });
+
+    await expect(fetchHistory("123", api)).resolves.toEqual([]);
   });
 
   it("preserves version numbers from API", async () => {

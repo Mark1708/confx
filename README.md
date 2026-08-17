@@ -39,6 +39,7 @@ confluence-page.zip
 - **CSV** -- extracted tables, one file per table.
 - **Images** -- inline images downloaded from the host, deduplicated when enabled.
 - **Attachments** -- page attachments up to the configured size limit.
+- **Comments** -- page and inline (fragment) comments with authors, resolved status, and replies, embedded in Markdown between `confx:comments` markers and saved as `comments.json` / `inline-comments.json`.
 - **manifest.json** -- source host, page ID, title, version, space, labels, export timestamp.
 
 ### Export presets
@@ -112,7 +113,7 @@ confluence-page.zip
 
 ## Features
 
-- **Page export**: export the current Confluence page as Markdown, CSV tables, images, and a manifest.
+- **Page export**: export the current Confluence page as Markdown, CSV tables, images, comments, and a manifest.
 - **Space export**: export all pages in a Confluence space when the current page context supports it.
 - **Subtree export**: recursively export child pages and generate a navigable `README.md`.
 - **Picker**: select a block on the page, preview it, and export only that block.

@@ -546,6 +546,135 @@ describe("ConfluenceApi", () => {
       expect(api.toPageMeta(makePage("789")).baseUrl).toBe("https://corp.atlassian.net");
     });
   });
+
+  describe("publishing mutations", () => {
+    it("posts a storage page create request", async () => {
+      const page = makePage("created", "Created page");
+      fetchMock.mockResolvedValueOnce(jsonResponse(page));
+      const api = new ConfluenceApi("https://confluence.example.com/wiki");
+
+      await expect(
+        api.createPage({
+          title: "Created page",
+          spaceKey: "DEV",
+          parentId: "100",
+          storage: "<p>Hello</p>",
+        }),
+      ).resolves.toEqual(page);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://confluence.example.com/wiki/rest/api/content",
+        expect.objectContaining({
+          method: "POST",
+          credentials: "include",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            type: "page",
+            title: "Created page",
+            space: { key: "DEV" },
+            ancestors: [{ id: "100" }],
+            body: {
+              storage: {
+                value: "<p>Hello</p>",
+                representation: "storage",
+              },
+            },
+          }),
+        }),
+      );
+    });
+
+    it("puts a versioned storage page update request", async () => {
+      const page = makePage("123", "Updated page");
+      fetchMock.mockResolvedValueOnce(jsonResponse(page));
+      const api = new ConfluenceApi("https://confluence.example.com");
+
+      await expect(
+        api.updatePage({
+          id: "123",
+          title: "Updated page",
+          spaceKey: "DEV",
+          version: 8,
+          storage: "<p>Updated</p>",
+        }),
+      ).resolves.toEqual(page);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://confluence.example.com/rest/api/content/123",
+        expect.objectContaining({
+          method: "PUT",
+          credentials: "include",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            id: "123",
+            type: "page",
+            title: "Updated page",
+            space: { key: "DEV" },
+            version: { number: 8 },
+            body: {
+              storage: {
+                value: "<p>Updated</p>",
+                representation: "storage",
+              },
+            },
+          }),
+        }),
+      );
+    });
+
+    it("posts storage conversion and returns rendered HTML", async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ value: "<div>Preview</div>" }));
+      const api = new ConfluenceApi("https://confluence.example.com");
+
+      await expect(api.renderStorage("<p>Preview</p>")).resolves.toBe("<div>Preview</div>");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://confluence.example.com/rest/api/contentbody/convert/view",
+        expect.objectContaining({
+          method: "POST",
+          credentials: "include",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ representation: "storage", value: "<p>Preview</p>" }),
+        }),
+      );
+    });
+
+    it("uploads an attachment with browser-managed multipart boundaries", async () => {
+      const attachment: ConfluenceAttachmentRaw = {
+        id: "att-1",
+        title: "guide.pdf",
+        extensions: { mediaType: "application/pdf", fileSize: 11 },
+      };
+      fetchMock.mockResolvedValueOnce(jsonResponse({ results: [attachment] }));
+      const api = new ConfluenceApi("https://confluence.example.com");
+      const file = new File(["hello"], "guide.pdf", { type: "application/pdf" });
+
+      await expect(api.uploadAttachment("123", file)).resolves.toEqual([attachment]);
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [, init] = fetchMock.mock.calls[0];
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        "https://confluence.example.com/rest/api/content/123/child/attachment",
+      );
+      expect(init?.method).toBe("POST");
+      expect(init?.credentials).toBe("include");
+      expect(init?.headers).toEqual({
+        Accept: "application/json",
+        "X-Atlassian-Token": "nocheck",
+      });
+      expect(init?.body).toBeInstanceOf(FormData);
+      expect((init?.body as FormData).get("file")).toBe(file);
+    });
+  });
 });
 
 describe("ConfluenceApi fetch policy", () => {

@@ -1,7 +1,17 @@
-import { Bell, CircleDot, Crosshair, FileText, FolderTree, Globe, Settings } from "lucide-react";
+import {
+  Bell,
+  CircleDot,
+  Crosshair,
+  FileText,
+  FolderTree,
+  Globe,
+  Settings,
+  Upload,
+} from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { storage } from "@/lib/browser/storage";
 import type { OpenConfxRequest, PickerResult } from "@/types";
+import { ImportPanel } from "./components/ImportPanel";
 import { JiraPanel } from "./components/JiraPanel";
 import { PagePanel } from "./components/PagePanel";
 import { PickerPanel } from "./components/PickerPanel";
@@ -20,7 +30,7 @@ import { ScrollArea } from "./ui/scroll-area";
 import { SegmentControl, type SegmentControlItem } from "./ui/segment-control";
 
 type PrimaryGroup = "extract" | "tools";
-type PanelId = "page" | "space" | "jira" | "subtree" | "picker" | "watch" | "settings";
+type PanelId = "page" | "space" | "jira" | "subtree" | "picker" | "import" | "watch" | "settings";
 
 type PanelNavItem = SegmentControlItem<PanelId>;
 
@@ -104,6 +114,11 @@ export function App() {
         value: "picker",
         label: t("sidepanel.tabs.picker"),
         icon: <Crosshair className="h-3 w-3" />,
+      },
+      {
+        value: "import",
+        label: t("sidepanel.tabs.import"),
+        icon: <Upload className="h-3 w-3" />,
       },
       {
         value: "watch",
@@ -286,6 +301,12 @@ function renderPanel(activePanel: PanelId, tab: ReturnType<typeof useCurrentTab>
       return (
         <PanelScroll>
           <PickerPanel tab={tab} />
+        </PanelScroll>
+      );
+    case "import":
+      return (
+        <PanelScroll>
+          <ImportPanel tab={tab} />
         </PanelScroll>
       );
     case "watch":

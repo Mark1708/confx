@@ -123,6 +123,27 @@ export abstract class HttpClient {
     return await res.blob();
   }
 
+  protected async requestJson<T>(
+    path: string,
+    init: RequestInit,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    const release = await this.semaphore.acquire();
+    try {
+      await this.waitForRateLimit(signal);
+      const res = await this.performRequest(path, this.createMutationInit(init), signal);
+      this.trackRateLimit(res.headers);
+
+      if (!res.ok) throw this.createApiError(path, "json", res, this.apiName);
+      return (await res.json()) as T;
+    } catch (error: unknown) {
+      if (error instanceof ApiError || isAbortError(error)) throw error;
+      throw new NetworkError(`Network error @ ${path}`, path, error);
+    } finally {
+      release();
+    }
+  }
+
   private async fetchWithPolicy(
     path: string,
     bodyKind: FetchBodyKind,
@@ -165,10 +186,28 @@ export abstract class HttpClient {
     const externalAbort = (): void => controller.abort();
     if (signal?.aborted) controller.abort();
     signal?.addEventListener("abort", externalAbort, { once: true });
-
     try {
       const init = createRequestInit(this.createBaseInit(bodyKind), controller.signal);
       return await fetch(this.url(path), init);
+    } finally {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", externalAbort);
+    }
+  }
+
+  private async performRequest(
+    path: string,
+    init: RequestInit,
+    signal?: AbortSignal,
+  ): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    const externalAbort = (): void => controller.abort();
+    if (signal?.aborted) controller.abort();
+    signal?.addEventListener("abort", externalAbort, { once: true });
+
+    try {
+      return await fetch(this.url(path), createRequestInit(init, controller.signal));
     } finally {
       clearTimeout(timeoutId);
       signal?.removeEventListener("abort", externalAbort);
@@ -179,6 +218,26 @@ export abstract class HttpClient {
     return bodyKind === "json"
       ? { credentials: "include", headers: { Accept: "application/json" } }
       : { credentials: "include" };
+  }
+
+  private createMutationInit(init: RequestInit): RequestInit {
+    const headers: Record<string, string> = {};
+    if (init.headers instanceof Headers) {
+      for (const [key, value] of init.headers.entries()) headers[key] = value;
+    } else if (Array.isArray(init.headers)) {
+      for (const [key, value] of init.headers) headers[key] = value;
+    } else if (init.headers) {
+      Object.assign(headers, init.headers);
+    }
+    if (!Object.keys(headers).some((key) => key.toLowerCase() === "accept")) {
+      headers.Accept = "application/json";
+    }
+
+    return {
+      ...init,
+      credentials: "include",
+      headers,
+    };
   }
 
   private async waitForRateLimit(signal?: AbortSignal): Promise<void> {

@@ -1,4 +1,4 @@
-import type { VersionInfo } from "@/types";
+import { ApiError, type VersionInfo } from "@/types";
 import type { ConfluenceApi } from "./confluence-api";
 
 interface VersionRaw {
@@ -17,10 +17,16 @@ export async function fetchHistory(
   api: ConfluenceApi,
   signal?: AbortSignal,
 ): Promise<VersionInfo[]> {
-  const res = await api.fetchJson<VersionsResponse>(
-    `/rest/api/content/${pageId}/version?limit=50`,
-    signal,
-  );
+  let res: VersionsResponse;
+  try {
+    res = await api.fetchJson<VersionsResponse>(
+      `/rest/api/content/${pageId}/version?limit=50`,
+      signal,
+    );
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return [];
+    throw error;
+  }
 
   return res.results.map((raw) => ({
     number: raw.number,

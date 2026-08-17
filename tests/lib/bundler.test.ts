@@ -32,6 +32,7 @@ function makePage(overrides: Partial<ExtractedPage> = {}): ExtractedPage {
     images: [],
     attachments: [],
     comments: [],
+    inlineComments: [],
     history: [],
     folder: "test-page",
     ...overrides,
@@ -170,6 +171,45 @@ describe("bundleExtractedPages", () => {
     const got = entries["export/test-page/images/d.png"];
     expect(got).toBeDefined();
     expect(Array.from(got)).toEqual(Array.from(original));
+  });
+
+  it("writes inline-comments.json only when inline comments are present", async () => {
+    const blob = await bundleExtractedPages(
+      [
+        makePage({
+          inlineComments: [
+            {
+              id: "inline-1",
+              author: "Alice",
+              updatedAt: "2025-03-01T10:00:00Z",
+              body: "<p>Inline</p>",
+              markdown: "Inline",
+              selection: "selected text",
+              markerRef: "marker-1",
+              status: "open",
+              replies: [
+                {
+                  id: "reply-1",
+                  author: "Bob",
+                  updatedAt: "2025-03-01T11:00:00Z",
+                  body: "<p>Reply</p>",
+                  markdown: "Reply",
+                },
+              ],
+            },
+          ],
+        }),
+        makePage({ folder: "without-inline" }),
+      ],
+      { rootName: "export" },
+    );
+
+    const entries = await extractZip(blob);
+    const inlineJson = JSON.parse(readEntry(entries, "export/test-page/inline-comments.json"));
+
+    expect(inlineJson[0].selection).toBe("selected text");
+    expect(inlineJson[0].replies[0].id).toBe("reply-1");
+    expect(hasEntry(entries, "export/without-inline/inline-comments.json")).toBe(false);
   });
 });
 

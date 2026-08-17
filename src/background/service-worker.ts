@@ -57,48 +57,48 @@ if (validateEnvironment()) {
     openFallbackWindow();
   });
 
-async function openFallbackWindow(): Promise<void> {
-  const url = BrowserApi.getURL(SIDEPANEL_URL);
-  const stored = await storage.session.get(FALLBACK_WINDOW_ID_KEY);
-  const existingId = stored[FALLBACK_WINDOW_ID_KEY] as number | undefined;
+  async function openFallbackWindow(): Promise<void> {
+    const url = BrowserApi.getURL(SIDEPANEL_URL);
+    const stored = await storage.session.get(FALLBACK_WINDOW_ID_KEY);
+    const existingId = stored[FALLBACK_WINDOW_ID_KEY] as number | undefined;
 
-  if (typeof existingId === "number") {
-    try {
-      const win = await BrowserApi.getWindow(existingId);
-      if (win) {
-        await BrowserApi.updateWindow(existingId, { focused: true });
-        return;
+    if (typeof existingId === "number") {
+      try {
+        const win = await BrowserApi.getWindow(existingId);
+        if (win) {
+          await BrowserApi.updateWindow(existingId, { focused: true });
+          return;
+        }
+      } catch {
+        // окно закрыто — создадим новое
       }
-    } catch {
-      // окно закрыто — создадим новое
+    }
+
+    const created = await BrowserApi.createWindow({
+      url,
+      type: "popup",
+      width: 600,
+      height: 600,
+    });
+
+    if (typeof created.id === "number") {
+      await storage.session.set({ [FALLBACK_WINDOW_ID_KEY]: created.id });
     }
   }
 
-  const created = await BrowserApi.createWindow({
-    url,
-    type: "popup",
-    width: 600,
-    height: 600,
-  });
+  async function openSidePanelOrFallback(sender: chrome.runtime.MessageSender): Promise<void> {
+    if (!hasSidePanel()) {
+      await openFallbackWindow();
+      return;
+    }
 
-  if (typeof created.id === "number") {
-    await storage.session.set({ [FALLBACK_WINDOW_ID_KEY]: created.id });
+    const windowId = sender.tab?.windowId ?? (await BrowserApi.getCurrentWindow()).id;
+    if (typeof windowId !== "number") {
+      throw new Error("Cannot determine current window");
+    }
+
+    await BrowserApi.openSidePanel({ windowId });
   }
-}
-
-async function openSidePanelOrFallback(sender: chrome.runtime.MessageSender): Promise<void> {
-  if (!hasSidePanel()) {
-    await openFallbackWindow();
-    return;
-  }
-
-  const windowId = sender.tab?.windowId ?? (await BrowserApi.getCurrentWindow()).id;
-  if (typeof windowId !== "number") {
-    throw new Error("Cannot determine current window");
-  }
-
-  await BrowserApi.openSidePanel({ windowId });
-}
 
   BrowserApi.onWindowRemoved(async (removedId) => {
     const stored = await storage.session.get(FALLBACK_WINDOW_ID_KEY);
@@ -112,19 +112,19 @@ async function openSidePanelOrFallback(sender: chrome.runtime.MessageSender): Pr
     return { ok: true };
   });
 
-async function openNativePopupOrFallback(sender: chrome.runtime.MessageSender): Promise<void> {
-  try {
-    await BrowserApi.openActionPopup();
-    return;
-  } catch (error) {
-    console.warn(
-      "[cx] native action popup is unavailable; falling back to sidePanel or detached popup window",
-      error,
-    );
-  }
+  async function openNativePopupOrFallback(sender: chrome.runtime.MessageSender): Promise<void> {
+    try {
+      await BrowserApi.openActionPopup();
+      return;
+    } catch (error) {
+      console.warn(
+        "[cx] native action popup is unavailable; falling back to sidePanel or detached popup window",
+        error,
+      );
+    }
 
-  await openSidePanelOrFallback(sender);
-}
+    await openSidePanelOrFallback(sender);
+  }
 
   MessageBus.on("open-confx", async (msg, sender) => {
     await storage.session.set({ [OPEN_CONFX_INTENT_KEY]: msg });
@@ -148,7 +148,7 @@ async function openNativePopupOrFallback(sender: chrome.runtime.MessageSender): 
       active: true,
     }).then((tab) => ({ ok: true, tabId: tab.id }));
   });
-  
+
   MessageBus.on("picker-result", async (msg, sender) => {
     await storage.session.set({ [PICKER_RESULT_KEY]: msg });
     await openNativePopupOrFallback(sender);

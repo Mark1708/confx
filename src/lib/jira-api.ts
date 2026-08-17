@@ -152,5 +152,4 @@ export class JiraApi extends HttpClient {
     const attachments = Array.isArray(fields.attachment) ? fields.attachment : [];
     return attachments.map(toAttachment);
   }
-
 }

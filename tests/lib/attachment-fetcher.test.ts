@@ -27,7 +27,7 @@ function makeAttachment(overrides: Partial<AttachmentInfo> = {}): AttachmentInfo
 }
 
 async function sha256Hex(blob: Blob): Promise<string> {
-  const h = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+  const h = await crypto.subtle.digest("SHA-256", new Uint8Array(await blob.arrayBuffer()));
   return Array.from(new Uint8Array(h))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");

@@ -263,6 +263,21 @@ export interface ExtractedComment {
   /** Markdown version of comment body */
   markdown: string;
 }
+export interface ExtractedInlineCommentReply {
+  id: string;
+  author: string;
+  updatedAt: string;
+  body: string;
+  /** Markdown version of inline comment body */
+  markdown: string;
+}
+
+export interface ExtractedInlineComment extends ExtractedInlineCommentReply {
+  selection: string;
+  markerRef: string;
+  status: "open" | "resolved";
+  replies: ExtractedInlineCommentReply[];
+}
 
 export interface VersionInfo {
   number: number;
@@ -278,6 +293,7 @@ export interface ExtractedPage {
   images: ExtractedImage[];
   attachments: ExtractedAttachment[];
   comments: ExtractedComment[];
+  inlineComments: ExtractedInlineComment[];
   history: VersionInfo[];
   /** Folder inside ZIP (for subtree export) */
   folder: string;

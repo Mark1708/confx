@@ -16,7 +16,7 @@ const EXPECTED_EXTENSION_ID = process.env.YANDEX_EXTENSION_ID;
 if (!existsSync(KEY_PATH)) {
   console.error(
     `[pack:yandex] key not found: ${KEY_PATH}\n` +
-      `  run: openssl genrsa -out keys/yandex.pem 2048`
+      `  provide the existing release key via YANDEX_KEY_PATH; do not generate a new identity`
   );
   process.exit(1);
 }
@@ -29,17 +29,25 @@ if (!existsSync(MANIFEST)) {
   process.exit(1);
 }
 
-function computeExtensionId() {
+function readSigningIdentity() {
   const pem = readFileSync(KEY_PATH, "utf-8");
   const publicKey = createPublicKey(createPrivateKey(pem));
   const der = publicKey.export({ format: "der", type: "spki" });
+  const publicKeyBase64 = Buffer.from(der).toString("base64");
   const hash = createHash("sha256").update(der).digest("hex").slice(0, 32);
-  return hash.replace(/[0-9a-f]/g, (c) =>
+  const id = hash.replace(/[0-9a-f]/g, (c) =>
     String.fromCharCode(97 + parseInt(c, 16))
   );
+  return { id, publicKeyBase64 };
 }
 
-const extensionId = computeExtensionId();
+const identity = readSigningIdentity();
+const extensionId = identity.id;
+const manifest = JSON.parse(readFileSync(MANIFEST, "utf8"));
+if (manifest.key !== identity.publicKeyBase64) {
+  console.error("[pack:yandex] signing key does not match the built public extension identity");
+  process.exit(1);
+}
 
 if (EXPECTED_EXTENSION_ID && extensionId !== EXPECTED_EXTENSION_ID) {
   console.error(

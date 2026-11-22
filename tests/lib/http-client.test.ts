@@ -22,7 +22,7 @@ class TestClient extends HttpClient {
     return this.fetchJson<T>(path, signal);
   }
 
-  mutate<T>(path: string, init: RequestInit, signal?: AbortSignal): Promise<T> {
+  request<T>(path: string, init: RequestInit, signal?: AbortSignal): Promise<T> {
     return this.requestJson<T>(path, init, signal);
   }
 }
@@ -48,7 +48,9 @@ describe("HttpClient requestJson", () => {
   it("keeps automatic retry for transient GET reads", async () => {
     vi.useFakeTimers();
     fetchMock
-      .mockResolvedValueOnce(jsonResponse({ down: true }, { status: 503, statusText: "Unavailable" }))
+      .mockResolvedValueOnce(
+        jsonResponse({ down: true }, { status: 503, statusText: "Unavailable" }),
+      )
       .mockResolvedValueOnce(jsonResponse({ ok: true }));
     const client = new TestClient();
 
@@ -59,41 +61,41 @@ describe("HttpClient requestJson", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("does not retry mutation status failures", async () => {
+  it("does not retry read-only conversion status failures", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ down: true }, { status: 503, statusText: "Unavailable" }),
     );
     const client = new TestClient();
 
-    await expect(client.mutate("/write", { method: "PUT", body: "{}" })).rejects.toBeInstanceOf(
+    await expect(client.request("/convert", { method: "POST", body: "{}" })).rejects.toBeInstanceOf(
       ApiError,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("does not retry mutation network failures", async () => {
+  it("does not retry read-only conversion network failures", async () => {
     fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
     const client = new TestClient();
 
-    await expect(client.mutate("/write", { method: "POST", body: "{}" })).rejects.toBeInstanceOf(
+    await expect(client.request("/convert", { method: "POST", body: "{}" })).rejects.toBeInstanceOf(
       NetworkError,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("merges JSON mutation headers with include credentials", async () => {
+  it("merges JSON conversion headers with include credentials", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true }));
     const client = new TestClient();
 
     await expect(
-      client.mutate<{ ok: boolean }>("/write", {
+      client.request<{ ok: boolean }>("/convert", {
         method: "POST",
         headers: { "X-Custom": "1", "Content-Type": "application/json" },
         body: "{}",
       }),
     ).resolves.toEqual({ ok: true });
 
-    expect(fetchMock).toHaveBeenCalledWith("https://example.com/write", {
+    expect(fetchMock).toHaveBeenCalledWith("https://example.com/convert", {
       method: "POST",
       credentials: "include",
       headers: {

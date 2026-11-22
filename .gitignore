@@ -1,22 +1,46 @@
+# Dependencies and local caches
 node_modules/
-dist/
-dist-yandex/
-release/
-.vite/
-.DS_Store
-*.log
+/.vite/
+
+# Built extensions and distributable packages
+/dist/
+/dist-yandex/
+/release/
+
+# TypeScript build output (keep authored JS and declarations)
+*.tsbuildinfo
+/vite.config.js
+/vite.config.d.ts
+/src/manifest.js
+/src/manifest.d.ts
+
+# Test, coverage and browser-run artifacts (keep fixtures and README media)
+/coverage/
+/tests/reports/
+/playwright-report/
+/test-results/
+/blob-report/
+
+# Local configuration and signing material
 .env
-.env.local
-keys/
-*.crx
-*.zip
+.env.*
+!.env.example
+!.env.*.example
+/keys/
 *.pem
 *.key
-*.tsbuildinfo
-vite.config.js
-vite.config.d.ts
-src/manifest.js
-src/manifest.d.ts
-coverage/
-.omo/
-tests/reports/
+
+# Editor and assistant workspace state
+.idea/
+*.iml
+.vscode/
+/.omo/
+*.swp
+*.swo
+*~
+
+# Logs and operating-system metadata
+*.log
+.DS_Store
+._*
+Thumbs.db

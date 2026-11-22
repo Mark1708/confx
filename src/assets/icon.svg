@@ -1,70 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254" fill="none">
-  <defs>
-    <linearGradient id="bgGrad" x1="210" y1="150" x2="1040" y2="1110" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#06080E"/>
-      <stop offset="0.56" stop-color="#090C15"/>
-      <stop offset="1" stop-color="#05070C"/>
-    </linearGradient>
-    <linearGradient id="rimGrad" x1="156" y1="1108" x2="1102" y2="156" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#9B43FF"/>
-      <stop offset="0.40" stop-color="#4B447D"/>
-      <stop offset="0.77" stop-color="#168CB4"/>
-      <stop offset="1" stop-color="#1EE8FF"/>
-    </linearGradient>
-    <linearGradient id="mainGrad" x1="332" y1="934" x2="985" y2="505" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#CC61FF"/>
-      <stop offset="0.28" stop-color="#8753FF"/>
-      <stop offset="0.58" stop-color="#6B8BFF"/>
-      <stop offset="0.82" stop-color="#25DFFF"/>
-      <stop offset="1" stop-color="#22E4FF"/>
-    </linearGradient>
-    <linearGradient id="dotGrad" x1="672" y1="747" x2="818" y2="747" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#0ADFFF"/>
-      <stop offset="1" stop-color="#46FFD2"/>
-    </linearGradient>
-    <radialGradient id="purpleFloor" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(425 944) scale(238 76)">
-      <stop offset="0" stop-color="#8A44FF" stop-opacity="0.66"/>
-      <stop offset="0.43" stop-color="#6E38E4" stop-opacity="0.22"/>
-      <stop offset="1" stop-color="#6E38E4" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="cyanFloor" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(792 892) scale(165 76)">
-      <stop offset="0" stop-color="#00D2FF" stop-opacity="0.20"/>
-      <stop offset="1" stop-color="#00D2FF" stop-opacity="0"/>
-    </radialGradient>
-    <filter id="blurRim" x="120" y="120" width="1040" height="1040" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="13"/></filter>
-    <filter id="blurFloor" x="150" y="790" width="900" height="240" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="23"/></filter>
-    <filter id="glyphGlow" x="250" y="260" width="800" height="730" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="6.5"/></filter>
-
-    <g id="glyph">
-      <path d="M733 846V887C733 921 706 948 672 948H387C352 948 324 920 324 885V393C324 358 352 330 387 330H610L756 476V567C756 620 799 663 806 663"
-            stroke="url(#mainGrad)" stroke-width="53" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M850 529L983 662L850 795V689H800V636H850V529Z" fill="url(#mainGrad)"/>
-
-      <rect x="429" y="590" width="215" height="25" rx="12.5" fill="#8E55FF"/>
-      <rect x="429" y="653" width="177" height="25" rx="12.5" fill="#8E55FF"/>
-      <rect x="429" y="726" width="69" height="35" rx="4" fill="#8E55FF"/>
-      <rect x="515" y="726" width="87" height="35" rx="4" fill="#8354FF"/>
-      <rect x="429" y="784" width="69" height="35" rx="4" fill="#975CFF"/>
-      <rect x="515" y="784" width="87" height="35" rx="4" fill="#8A56FF"/>
-      <rect x="672" y="737" width="32" height="32" rx="4" fill="url(#dotGrad)"/>
-      <rect x="728" y="737" width="32" height="32" rx="4" fill="url(#dotGrad)"/>
-      <rect x="784" y="737" width="32" height="32" rx="4" fill="url(#dotGrad)"/>
-    </g>
-  </defs>
-
-  <rect width="1254" height="1254" fill="#05070C"/>
-  <rect width="1254" height="1254" fill="url(#bgGrad)"/>
-  <rect x="156" y="156" width="948" height="954" rx="138" fill="#0A0C14"/>
-  <rect x="190" y="190" width="880" height="886" rx="118" fill="#080B13"/>
-  <rect x="197" y="197" width="866" height="872" rx="114" fill="none" stroke="#0C101A" stroke-width="10" opacity="0.95"/>
-  <rect x="194" y="194" width="872" height="878" rx="116" fill="none" stroke="#23283A" stroke-width="2" opacity="0.34"/>
-  <path d="M164 959V292C164 221.31 221.31 164 292 164H960" stroke="#9341FF" stroke-width="18" stroke-linecap="round" opacity="0.34" filter="url(#blurRim)"/>
-  <path d="M960 164H968C1038.69 164 1096 221.31 1096 292V959" stroke="#14DBFF" stroke-width="18" stroke-linecap="round" opacity="0.50" filter="url(#blurRim)"/>
-  <rect x="163" y="163" width="934" height="940" rx="132" fill="none" stroke="url(#rimGrad)" stroke-width="6" opacity="0.34"/>
-  <rect x="156" y="156" width="948" height="954" rx="138" fill="none" stroke="url(#rimGrad)" stroke-width="12" opacity="0.11"/>
-  <rect x="160" y="160" width="940" height="946" rx="134" fill="none" stroke="#FFFFFF" stroke-width="2" opacity="0.05"/>
-  <ellipse cx="425" cy="944" rx="238" ry="76" fill="url(#purpleFloor)" filter="url(#blurFloor)"/>
-  <ellipse cx="792" cy="892" rx="165" ry="76" fill="url(#cyanFloor)" filter="url(#blurFloor)"/>
-  <g opacity="0.22" filter="url(#glyphGlow)"><use href="#glyph"/></g>
-  <use href="#glyph"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+  <title>Confx document export</title>
+  <!-- Geometry source: absolute coordinates on the 16px grid, inside the 1px safe margin.
+       scripts/create-icons.mjs refreshes fills from computed appearance.css tokens. -->
+  <path data-icon-color="foreground" fill="rgb(227, 227, 237)" d="M2 1H8L11 4V14Q11 15 10 15H2Q1 15 1 14V2Q1 1 2 1Z"/>
+  <path data-icon-color="surface" fill="rgb(19, 19, 27)" d="M2 2H7V5H10V14H2Z"/>
+  <path data-icon-color="surface" fill="rgb(19, 19, 27)" d="M8 2L10 4H8Z"/>
+  <path data-icon-color="foreground" fill="rgb(227, 227, 237)" d="M3 6H8V7H3Z"/>
+  <path data-icon-color="primary" fill="rgb(106, 90, 231)" d="M7 7H14Q15 7 15 8V14Q15 15 14 15H7Q6 15 6 14V8Q6 7 7 7Z"/>
+  <path data-icon-color="primary-foreground" fill="rgb(255, 255, 255)" d="M8 10H11V8L14 11L11 14V12H8Z"/>
 </svg>

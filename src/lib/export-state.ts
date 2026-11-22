@@ -1,297 +1,299 @@
-import type { ConfluencePageMeta, ExportJobConfig, ExportJobState, ExportJobStatus } from "@/types";
 import { storage } from "@/lib/browser";
+import { normalizePresetId } from "@/lib/rule-engine";
+import type {
+  ExportJobCounts,
+  ExportJobOwner,
+  ExportJobPhase,
+  ExportJobState,
+  ExportJobStatus,
+  ExportPresetId,
+  ExportRequestSummary,
+} from "@/types";
 
-const EXPORT_STATE_VERSION = 1;
-const STORAGE_KEY_PREFIX = "cx:exportJob:";
+export const EXPORT_ACTIVE_KEY = "cx.export.active.v2";
+const JOB_PREFIX = "cx.exportJob.v2:";
+const LEGACY_PREFIX = "cx:exportJob:";
+const COUNT_KEYS: Array<keyof ExportJobCounts> = [
+  "processed",
+  "total",
+  "successfulPages",
+  "failedPages",
+  "successfulResources",
+  "failedResources",
+  "entriesWritten",
+  "bytesWritten",
+];
+
+export function exportJobStorageKey(id: string): string {
+  return `${JOB_PREFIX}${id}`;
+}
 
 export function serializeJobState(state: ExportJobState): string {
-  return JSON.stringify({ version: EXPORT_STATE_VERSION, ...state });
+  const metadata = parseState(state);
+  if (!metadata) throw new Error("Invalid export job metadata");
+  return JSON.stringify(metadata);
 }
 
 export function deserializeJobState(json: string): ExportJobState | null {
   try {
-    const parsed: unknown = JSON.parse(json);
-    return parseSerializedJobState(parsed);
-  } catch (_error: unknown) {
+    const value: unknown = JSON.parse(json);
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    if ("version" in value && value.version === 1)
+      return migrateLegacyState(value as Record<string, unknown>);
+    return parseState(value);
+  } catch {
     return null;
   }
 }
 
 export async function saveJobState(state: ExportJobState): Promise<void> {
-  try {
-    await storage.session.set({ [getStorageKey(state.id)]: serializeJobState(state) });
-  } catch (_error: unknown) {
-    return;
+  await storage.session.set({
+    [exportJobStorageKey(state.id)]: serializeJobState(state),
+    [EXPORT_ACTIVE_KEY]: state.id,
+  });
+}
+
+export async function loadJobState(id: string): Promise<ExportJobState | null> {
+  const key = exportJobStorageKey(id);
+  const items = await storage.session.get(key);
+  const value = items[key];
+  const state = typeof value === "string" ? deserializeJobState(value) : null;
+  return state?.id === id ? state : null;
+}
+
+/** Legacy payload deletion is permitted only while the caller holds the export lock. */
+export async function loadLastJobState(migrateLegacy = true): Promise<ExportJobState | null> {
+  const active = await storage.session.get(EXPORT_ACTIVE_KEY);
+  const id = active[EXPORT_ACTIVE_KEY];
+  if (typeof id === "string") {
+    const current = await loadJobState(id);
+    if (current) return current;
   }
-}
 
-export async function loadJobState(jobId: string): Promise<ExportJobState | null> {
-  try {
-    const items = await storage.session.get(getStorageKey(jobId));
-    const value: unknown = items[getStorageKey(jobId)];
-    return typeof value === "string" ? deserializeJobState(value) : null;
-  } catch (_error: unknown) {
-    return null;
+  const items = await storage.session.get(null);
+  const legacy: Array<{ key: string; state: ExportJobState }> = [];
+  for (const [key, value] of Object.entries(items)) {
+    if (!key.startsWith(LEGACY_PREFIX) || typeof value !== "string") continue;
+    const state = deserializeJobState(value);
+    if (state?.status === "interrupted") legacy.push({ key, state });
   }
-}
-
-export async function loadLastJobState(): Promise<ExportJobState | null> {
-  try {
-    const items = await storage.session.get(null);
-    const states = Object.entries(items)
-      .filter(([key]) => key.startsWith(STORAGE_KEY_PREFIX))
-      .map(([, value]) => (typeof value === "string" ? deserializeJobState(value) : null))
-      .filter(isExportJobState);
-
-    return findMostRecentJobState(states);
-  } catch (_error: unknown) {
-    return null;
+  let latest: ExportJobState | null = null;
+  for (const item of legacy) {
+    if (!latest || stateTime(item.state) > stateTime(latest)) latest = item.state;
   }
+  if (!latest || !migrateLegacy) return latest;
+
+  const sanitized: Record<string, unknown> = { [EXPORT_ACTIVE_KEY]: latest.id };
+  for (const item of legacy)
+    sanitized[exportJobStorageKey(item.state.id)] = serializeJobState(item.state);
+  await storage.session.set(sanitized);
+  await storage.session.remove(legacy.map((item) => item.key));
+  return latest;
 }
 
-export async function clearJobState(jobId: string): Promise<void> {
-  try {
-    await storage.session.remove(getStorageKey(jobId));
-  } catch (_error: unknown) {
-    return;
-  }
-}
-
-function getStorageKey(jobId: string): string {
-  return `${STORAGE_KEY_PREFIX}${jobId}`;
-}
-
-function parseSerializedJobState(value: unknown): ExportJobState | null {
-  if (!isRecord(value) || value.version !== EXPORT_STATE_VERSION) return null;
-
-  const state = parseJobState(value);
-  if (!state) return null;
-
-  return state;
-}
-
-function parseJobState(value: Record<string, unknown>): ExportJobState | null {
-  const config = parseConfig(value.config);
-  const progress = parseProgress(value.progress);
-
-  if (!isString(value.id) || !isStatus(value.status) || !config || !progress) return null;
-
-  const error = parseOptionalString(value.error);
-  const result = parseResult(value.result);
-  const startedAt = parseOptionalString(value.startedAt);
-  const completedAt = parseOptionalString(value.completedAt);
-  const resumeFromIndex = parseOptionalNumber(value.resumeFromIndex);
-  const processedPageIds = parseOptionalStringArray(value.processedPageIds);
-
+function parseState(input: unknown): ExportJobState | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const value = input as Record<string, unknown>;
+  if (value.version !== 2) return null;
+  const owner = parseOwner(value.owner);
+  const request = parseRequest(value.request);
+  const counts = parseCounts(value.counts);
   if (
-    error === null ||
-    result === null ||
-    startedAt === null ||
-    completedAt === null ||
-    resumeFromIndex === null ||
-    processedPageIds === null
-  ) {
+    typeof value.id !== "string" ||
+    !value.id ||
+    typeof value.sourceKey !== "string" ||
+    !value.sourceKey ||
+    !owner ||
+    !request ||
+    !counts ||
+    !isStatus(value.status) ||
+    !isPhase(value.phase) ||
+    typeof value.message !== "string" ||
+    typeof value.cancelRequested !== "boolean"
+  )
     return null;
+  if (value.phase === null && owner.surface !== "unknown") return null;
+  if (
+    !optionalString(value.error) ||
+    !optionalString(value.startedAt) ||
+    !optionalString(value.completedAt) ||
+    !optionalString(value.terminalReason)
+  )
+    return null;
+  let result: ExportJobState["result"];
+  if (value.result !== undefined) {
+    if (!value.result || typeof value.result !== "object" || Array.isArray(value.result))
+      return null;
+    const output = value.result as Record<string, unknown>;
+    if (
+      typeof output.fileName !== "string" ||
+      (output.downloadId !== undefined && !isCount(output.downloadId)) ||
+      (output.directoryName !== undefined && typeof output.directoryName !== "string")
+    )
+      return null;
+    result = {
+      fileName: output.fileName,
+      ...(output.downloadId === undefined ? {} : { downloadId: output.downloadId }),
+      ...(output.directoryName === undefined ? {} : { directoryName: output.directoryName }),
+    };
   }
-
   return {
+    version: 2,
     id: value.id,
+    sourceKey: value.sourceKey,
+    owner,
+    request,
     status: value.status,
-    config,
-    progress,
-    error,
-    result,
-    startedAt,
-    completedAt,
-    resumeFromIndex,
-    processedPageIds,
+    phase: value.phase,
+    message: value.message,
+    counts,
+    cancelRequested: value.cancelRequested,
+    ...(typeof value.error === "string" ? { error: value.error } : {}),
+    ...(result ? { result } : {}),
+    ...(typeof value.startedAt === "string" ? { startedAt: value.startedAt } : {}),
+    ...(typeof value.completedAt === "string" ? { completedAt: value.completedAt } : {}),
+    ...(typeof value.terminalReason === "string" ? { terminalReason: value.terminalReason } : {}),
   };
 }
 
-function parseConfig(value: unknown): ExportJobConfig | null {
-  if (!isRecord(value) || !isExportKind(value.kind) || !isString(value.host)) {
-    return null;
-  }
-
-  const presetId = parseOptionalString(value.presetId);
-  const pageId = parseOptionalString(value.pageId);
-  const rootPageId = parseOptionalString(value.rootPageId);
-  const spaceKey = parseOptionalString(value.spaceKey);
-  const spaceOptions = parseOptionalSpaceOptions(value.spaceOptions);
-  const maxDepth = parseOptionalNumber(value.maxDepth);
-  const html = parseOptionalString(value.html);
-  const pageMeta = parseOptionalPageMeta(value.pageMeta);
-  const issueKey = parseOptionalString(value.issueKey);
-  const jql = parseOptionalString(value.jql);
-
+function parseOwner(input: unknown): ExportJobOwner | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const value = input as Record<string, unknown>;
   if (
-    presetId === null ||
-    pageId === null ||
-    rootPageId === null ||
-    spaceKey === null ||
-    spaceOptions === null ||
-    maxDepth === null ||
-    html === null ||
-    pageMeta === null ||
-    issueKey === null ||
-    jql === null
-  ) {
+    typeof value.instanceId !== "string" ||
+    (value.surface !== "panel" &&
+      value.surface !== "popup" &&
+      value.surface !== "workspace" &&
+      value.surface !== "unknown") ||
+    (value.tabId !== undefined && !isCount(value.tabId)) ||
+    (value.windowId !== undefined && !isCount(value.windowId))
+  )
     return null;
-  }
+  return {
+    instanceId: value.instanceId,
+    surface: value.surface,
+    ...(value.tabId === undefined ? {} : { tabId: value.tabId }),
+    ...(value.windowId === undefined ? {} : { windowId: value.windowId }),
+  };
+}
 
+function parseRequest(input: unknown): ExportRequestSummary | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const value = input as Record<string, unknown>;
+  if (
+    !isKind(value.kind) ||
+    (value.destination !== "download-zip" &&
+      value.destination !== "directory" &&
+      value.destination !== "streamed-zip") ||
+    (value.presetId !== undefined && !isPresetId(value.presetId)) ||
+    !optionalString(value.pageId) ||
+    !optionalString(value.rootPageId) ||
+    !optionalString(value.spaceKey) ||
+    !optionalString(value.issueKey) ||
+    (value.selectionCount !== undefined && !isCount(value.selectionCount)) ||
+    (value.maxDepth !== undefined && value.maxDepth !== null && !isCount(value.maxDepth))
+  )
+    return null;
   return {
     kind: value.kind,
-    host: value.host,
-    presetId,
-    pageId,
-    rootPageId,
-    spaceKey,
-    spaceOptions,
-    maxDepth,
-    html,
-    pageMeta,
-    issueKey,
-    jql,
+    destination: value.destination,
+    ...(isPresetId(value.presetId) ? { presetId: value.presetId } : {}),
+    ...(typeof value.pageId === "string" ? { pageId: value.pageId } : {}),
+    ...(typeof value.rootPageId === "string" ? { rootPageId: value.rootPageId } : {}),
+    ...(typeof value.spaceKey === "string" ? { spaceKey: value.spaceKey } : {}),
+    ...(typeof value.issueKey === "string" ? { issueKey: value.issueKey } : {}),
+    ...(isCount(value.selectionCount) ? { selectionCount: value.selectionCount } : {}),
+    ...(value.maxDepth === null || isCount(value.maxDepth) ? { maxDepth: value.maxDepth } : {}),
   };
 }
 
-function parseOptionalSpaceOptions(
-  value: unknown,
-): ExportJobConfig["spaceOptions"] | undefined | null {
-  if (value === undefined) return undefined;
-  if (!isRecord(value)) return null;
-
-  const label = parseOptionalString(value.label);
-  const prefix = parseOptionalString(value.prefix);
-  if (label === null || prefix === null) return null;
-
-  return {
-    ...(label === undefined ? {} : { label }),
-    ...(prefix === undefined ? {} : { prefix }),
-  };
-}
-
-function parseProgress(value: unknown): ExportJobState["progress"] | null {
-  if (
-    !isRecord(value) ||
-    !isNumber(value.current) ||
-    !isNumber(value.total) ||
-    !isString(value.message)
-  ) {
-    return null;
+function parseCounts(input: unknown): ExportJobCounts | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const value = input as Record<string, unknown>;
+  const counts = {} as ExportJobCounts;
+  for (const key of COUNT_KEYS) {
+    const count = value[key];
+    if (count !== null && !isCount(count)) return null;
+    counts[key] = count;
   }
-
-  return { current: value.current, total: value.total, message: value.message };
+  return counts;
 }
 
-function parseResult(value: unknown): { fileName: string } | undefined | null {
-  if (value === undefined) return undefined;
-  if (!isRecord(value) || !isString(value.fileName)) return null;
-  return { fileName: value.fileName };
-}
-
-function parseOptionalPageMeta(value: unknown): ConfluencePageMeta | undefined | null {
-  if (value === undefined) return undefined;
-  if (!isRecord(value)) return null;
+function migrateLegacyState(value: Record<string, unknown>): ExportJobState | null {
   if (
-    !isString(value.id) ||
-    !isString(value.title) ||
-    !isString(value.spaceKey) ||
-    !isString(value.baseUrl) ||
-    !isString(value.url)
+    typeof value.id !== "string" ||
+    !value.config ||
+    typeof value.config !== "object" ||
+    Array.isArray(value.config)
+  )
+    return null;
+  const config = value.config as Record<string, unknown>;
+  if (!isKind(config.kind)) return null;
+  const progress =
+    value.progress && typeof value.progress === "object" && !Array.isArray(value.progress)
+      ? (value.progress as Record<string, unknown>)
+      : {};
+  const request: ExportRequestSummary = { kind: config.kind, destination: "download-zip" };
+  if (
+    typeof config.presetId === "string" &&
+    [
+      "md-attachments",
+      "md-only",
+      "tables-only",
+      "generic",
+      "all-csv",
+      "full-page",
+      "api-doc",
+    ].includes(config.presetId)
   ) {
-    return null;
+    request.presetId = normalizePresetId(config.presetId);
   }
-
-  const version = parseOptionalNumber(value.version);
-  const labels = parseOptionalStringArray(value.labels);
-  const ancestors = parseOptionalAncestors(value.ancestors);
-  const attachmentCount = parseOptionalNumber(value.attachmentCount);
-
-  if (version === null || labels === null || ancestors === null || attachmentCount === null)
-    return null;
-
+  if (typeof config.pageId === "string") request.pageId = config.pageId;
+  if (typeof config.rootPageId === "string") request.rootPageId = config.rootPageId;
+  if (typeof config.spaceKey === "string") request.spaceKey = config.spaceKey;
+  if (typeof config.issueKey === "string") request.issueKey = config.issueKey;
+  if (config.maxDepth === null || isCount(config.maxDepth)) request.maxDepth = config.maxDepth;
   return {
+    version: 2,
     id: value.id,
-    title: value.title,
-    spaceKey: value.spaceKey,
-    baseUrl: value.baseUrl,
-    url: value.url,
-    version,
-    labels,
-    ancestors,
-    attachmentCount,
+    sourceKey: "legacy",
+    owner: { instanceId: "legacy", surface: "unknown" },
+    request,
+    status: "interrupted",
+    phase: null,
+    message: "Previous export was interrupted",
+    counts: {
+      processed: isCount(progress.current) ? progress.current : null,
+      total: isCount(progress.total) ? progress.total : null,
+      successfulPages: null,
+      failedPages: null,
+      successfulResources: null,
+      failedResources: null,
+      entriesWritten: null,
+      bytesWritten: null,
+    },
+    cancelRequested: false,
+    ...(typeof value.startedAt === "string" ? { startedAt: value.startedAt } : {}),
+    ...(typeof value.completedAt === "string" ? { completedAt: value.completedAt } : {}),
+    terminalReason: "legacy-owner-unavailable",
   };
 }
 
-function parseOptionalAncestors(
-  value: unknown,
-): ConfluencePageMeta["ancestors"] | undefined | null {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value)) return null;
-
-  const ancestors = value.map(parseAncestor);
-  if (ancestors.some((ancestor) => ancestor === null)) return null;
-
-  return ancestors.filter(isAncestor);
-}
-
-function parseAncestor(value: unknown): { id: string; title: string } | null {
-  if (!isRecord(value) || !isString(value.id) || !isString(value.title)) return null;
-  return { id: value.id, title: value.title };
-}
-
-function isAncestor(
-  value: { id: string; title: string } | null,
-): value is { id: string; title: string } {
-  return value !== null;
-}
-
-function parseOptionalString(value: unknown): string | undefined | null {
-  if (value === undefined) return undefined;
-  return isString(value) ? value : null;
-}
-
-function parseOptionalNumber(value: unknown): number | undefined | null {
-  if (value === undefined) return undefined;
-  return isNumber(value) ? value : null;
-}
-
-function parseOptionalStringArray(value: unknown): string[] | undefined | null {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value)) return null;
-  return value.every(isString) ? value : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isExportJobState(value: ExportJobState | null): value is ExportJobState {
-  return value !== null;
-}
-
-function findMostRecentJobState(states: ExportJobState[]): ExportJobState | null {
-  return states.reduce<ExportJobState | null>((latest, state) => {
-    if (!latest) return state;
-    return getStateTime(state) > getStateTime(latest) ? state : latest;
-  }, null);
-}
-
-function getStateTime(state: ExportJobState): number {
-  const timestamp = state.completedAt ?? state.startedAt;
-  if (!timestamp) return 0;
-
-  const time = Date.parse(timestamp);
+function stateTime(state: ExportJobState): number {
+  const time = Date.parse(state.completedAt ?? state.startedAt ?? "");
   return Number.isNaN(time) ? 0 : time;
 }
 
-function isString(value: unknown): value is string {
-  return typeof value === "string";
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
-function isNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
+function optionalString(value: unknown): boolean {
+  return value === undefined || typeof value === "string";
+}
+
+function isPresetId(value: unknown): value is ExportPresetId {
+  return value === "md-attachments" || value === "md-only" || value === "tables-only";
 }
 
 function isStatus(value: unknown): value is ExportJobStatus {
@@ -299,17 +301,31 @@ function isStatus(value: unknown): value is ExportJobStatus {
     value === "pending" ||
     value === "running" ||
     value === "completed" ||
+    value === "partial" ||
     value === "failed" ||
-    value === "cancelled"
+    value === "cancelled" ||
+    value === "interrupted"
   );
 }
 
-function isExportKind(value: unknown): value is ExportJobConfig["kind"] {
+function isPhase(value: unknown): value is ExportJobPhase | null {
+  return (
+    value === null ||
+    value === "discovering" ||
+    value === "reading" ||
+    value === "writing" ||
+    value === "finalizing" ||
+    value === "downloading"
+  );
+}
+
+function isKind(value: unknown): value is ExportRequestSummary["kind"] {
   return (
     value === "extract-page" ||
     value === "extract-subtree" ||
-    value === "extract-block" ||
     value === "extract-space" ||
+    value === "extract-block" ||
+    value === "extract-watch-changed" ||
     value === "extract-jira-issue" ||
     value === "extract-jira-search"
   );

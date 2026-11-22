@@ -1,4 +1,4 @@
-import type { ExtractedTable, ExtractionRule, RulePreset } from "@/types";
+import type { ExportPresetId, ExtractedTable, ExtractionRule, RulePreset } from "@/types";
 import { slugify, tableFilename, tableToCsv } from "./table-to-csv";
 
 export interface RuleEngineResult {
@@ -9,11 +9,10 @@ export interface RuleEngineResult {
 }
 
 /**
- * Apply rules to a cloned HTML document. `to-csv` only DUPLICATES tables into CSV files;
- * tables always remain in HTML so that Turndown converts them to GFM inside the Markdown.
- * `skip` hard-removes elements from HTML.
+ * Apply rules to a cloned HTML document. `to-csv` adds CSV without removing source tables.
+ * Explicit legacy `removeAfterCsv` options and `skip` remain destructive.
  */
-export function applyRules(html: string, rules: ExtractionRule[]): RuleEngineResult {
+export function applyRules(html: string, rules: readonly ExtractionRule[]): RuleEngineResult {
   const doc = new DOMParser().parseFromString(html, "text/html");
   const tables: ExtractedTable[] = [];
 
@@ -90,11 +89,12 @@ function handleNodes(
         node.remove();
         break;
       case "to-csv": {
-        const table =
+        const matchedTables =
           node.tagName === "TABLE"
-            ? (node as HTMLTableElement)
-            : (node.querySelector("table") as HTMLTableElement | null);
-        if (table && !csvEmitted.has(table) && !isConfluenceUiTable(table)) {
+            ? [node as HTMLTableElement]
+            : Array.from(node.querySelectorAll("table"));
+        for (const table of matchedTables) {
+          if (csvEmitted.has(table) || isConfluenceUiTable(table)) continue;
           emitCsv(table, sectionMap, tables, nextIdx());
           csvEmitted.add(table);
           if (rule.options?.removeAfterCsv === true) {
@@ -207,45 +207,6 @@ export const MD_ATTACHMENTS_PRESET: RulePreset = {
   rules: [],
 };
 
-export const GENERIC_PRESET: RulePreset = {
-  ...MD_ONLY_PRESET,
-  id: "generic",
-  name: "Generic (только MD)",
-  description: "Все таблицы и контент остаются в Markdown. CSV не генерируются.",
-};
-
-export const ALL_TABLES_CSV_PRESET: RulePreset = {
-  id: "all-csv",
-  name: "MD + все таблицы в CSV",
-  description: "Каждая таблица дополнительно сохраняется в отдельный CSV (MD при этом полон).",
-  rules: [
-    {
-      id: "all-tables-csv",
-      name: "Все таблицы → +CSV",
-      type: "selector",
-      matcher: "table.confluenceTable, div.table-wrap > table",
-      action: "to-csv",
-      enabled: true,
-    },
-  ],
-};
-
-export const FULL_PAGE_PRESET: RulePreset = {
-  id: "full-page",
-  name: "Полная страница",
-  description: "Экспортирует весь контент страницы, удаляя только навигационный chrome Confluence.",
-  rules: [
-    {
-      id: "navigation-chrome-skip",
-      name: "Навигационный chrome → пропустить",
-      type: "selector",
-      matcher: ".page-metadata, #breadcrumb-section",
-      action: "skip",
-      enabled: true,
-    },
-  ],
-};
-
 export const TABLES_ONLY_PRESET: RulePreset = {
   id: "tables-only",
   name: "Только таблицы",
@@ -259,53 +220,29 @@ export const TABLES_ONLY_PRESET: RulePreset = {
       matcher: "table.confluenceTable, div.table-wrap > table, table",
       action: "to-csv",
       enabled: true,
-      options: { removeAfterCsv: true },
-    },
-    {
-      id: "tables-only-content-skip",
-      name: "Нетабличный контент → пропустить",
-      type: "selector",
-      matcher: ".page-metadata, #breadcrumb-section, p, ul, ol, pre, blockquote",
-      action: "skip",
-      enabled: true,
     },
   ],
 };
 
-export const API_DOC_PRESET: RulePreset = {
-  id: "api-doc",
-  name: "API-документация",
-  description: "Извлекает таблицы endpoint-описаний в CSV, сохраняя блоки кода как HTML.",
-  rules: [
-    {
-      id: "api-endpoint-tables-csv",
-      name: "Таблицы endpoint → +CSV",
-      type: "selector",
-      matcher: "table.confluenceTable, div.table-wrap > table, table.api, table.endpoints",
-      action: "to-csv",
-      enabled: true,
-    },
-    {
-      id: "api-code-blocks-keep-html",
-      name: "Блоки кода → сохранить HTML",
-      type: "selector",
-      matcher: "pre, code, .code, .syntaxhighlighter, .codeContent",
-      action: "keep-html",
-      enabled: true,
-    },
-  ],
+export const DEFAULT_PRESET_ID: ExportPresetId = "md-attachments";
+
+const EXPORT_TEMPLATES: Record<ExportPresetId, RulePreset> = {
+  "md-attachments": MD_ATTACHMENTS_PRESET,
+  "md-only": MD_ONLY_PRESET,
+  "tables-only": TABLES_ONLY_PRESET,
 };
 
-export const DEFAULT_PRESET_ID = MD_ATTACHMENTS_PRESET.id;
+export const PRESETS: RulePreset[] = Object.values(EXPORT_TEMPLATES);
 
-export const PRESETS: RulePreset[] = [MD_ATTACHMENTS_PRESET, MD_ONLY_PRESET, TABLES_ONLY_PRESET];
+export function normalizePresetId(value: unknown): ExportPresetId {
+  if (value === "generic") return "md-only";
+  if (value === "md-only" || value === "md-attachments" || value === "tables-only") return value;
+  return DEFAULT_PRESET_ID;
+}
 
-const LEGACY_PRESET_ALIASES: Readonly<Record<string, RulePreset>> = {
-  generic: MD_ONLY_PRESET,
-  "all-csv": MD_ATTACHMENTS_PRESET,
-  "full-page": MD_ATTACHMENTS_PRESET,
-  "api-doc": MD_ATTACHMENTS_PRESET,
-};
+export function getExportTemplate(id: ExportPresetId): RulePreset {
+  return EXPORT_TEMPLATES[id];
+}
 
 interface RulesExportPayload {
   version: 1;
@@ -315,14 +252,14 @@ interface RulesExportPayload {
 
 const RULES_EXPORT_VERSION = 1;
 
-export function exportRules(preset: RulePreset, customRules: ExtractionRule[]): string {
+export function exportRules(preset: RulePreset, customRules: readonly ExtractionRule[]): string {
   return JSON.stringify({ version: RULES_EXPORT_VERSION, preset, customRules });
 }
 
 export function importRules(json: string): { preset: RulePreset; customRules: ExtractionRule[] } {
   const payload = parseRulesPayload(json);
   return {
-    preset: payload.preset,
+    preset: { ...payload.preset, id: normalizePresetId(payload.preset.id) },
     customRules: payload.customRules,
   };
 }
@@ -335,7 +272,7 @@ function parseRulesPayload(json: string): RulesExportPayload {
     throw new Error("Invalid rules JSON");
   }
 
-  if (!isRecord(value) || value.version !== RULES_EXPORT_VERSION) {
+  if (!isRecord(value) || (value.version !== undefined && value.version !== RULES_EXPORT_VERSION)) {
     throw new Error("Invalid rules export version");
   }
   if (!isRulePreset(value.preset)) {
@@ -401,8 +338,4 @@ function isRuleOptionValue(value: unknown): value is boolean | string | number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-export function getPreset(id: string): RulePreset {
-  return PRESETS.find((p) => p.id === id) ?? LEGACY_PRESET_ALIASES[id] ?? MD_ATTACHMENTS_PRESET;
 }

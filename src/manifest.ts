@@ -1,8 +1,6 @@
 /// <reference types="chrome" />
 
-import { createPrivateKey, createPublicKey } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
+import { createHash } from "node:crypto";
 import pkg from "../package.json";
 
 // ─── Target detection ─────────────────────────────────────────────
@@ -18,25 +16,9 @@ type ExtensionManifest = chrome.runtime.ManifestV3 & {
 };
 type ExtensionManifestBase = Omit<ExtensionManifest, "name">;
 
-// ─── Yandex signing key ───────────────────────────────────────────
-
-const YANDEX_KEY_PATH = path.resolve(
-  process.cwd(),
-  process.env.YANDEX_KEY_PATH ?? "keys/yandex.pem",
-);
-
-function readYandexPublicKey(): string {
-  if (!existsSync(YANDEX_KEY_PATH)) {
-    throw new Error(
-      `Yandex signing key not found at ${YANDEX_KEY_PATH}. ` +
-        `Run: openssl genrsa -out keys/yandex.pem 2048`,
-    );
-  }
-  const pem = readFileSync(YANDEX_KEY_PATH, "utf-8");
-  const publicKey = createPublicKey(createPrivateKey(pem));
-  const der = publicKey.export({ format: "der", type: "spki" });
-  return Buffer.from(der).toString("base64");
-}
+// Public SPKI of the existing release identity; unsigned builds never need its private key.
+const YANDEX_PUBLIC_KEY =
+  "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsFrThb+WKfP0gecH69sIbeZDXwZsVCoQ4WI1iPlj4Ul5y/RGr1N3oJf/UHW14zzG5mcuR2mEL4yIDsFhIwNyKkxFUtjKG6jwdZjEbQ63Tlj/x5TGgV6QBD6f3MeH71tYuOlOxi8UCiM0E3cbBzgIKILl+38iQzH9Ibh/wNY0LfFgiS458Zx3o1qE8hUO9xIztr+y7O17Pm3faii44VF1fo1diOz5XhLO0my43gm3Oj+nD2AQmIGHjvNgIREC7jSdm8hRtQYPLPyKeSc90QZib27384l2j3VJqHOBa7pimIQXVUuMYpoD2BvRezWehPcZkJpqw7JK/Drovxb4i8pE7QIDAQAB";
 
 // ─── Shared permissions ───────────────────────────────────────────
 
@@ -47,6 +29,7 @@ const sharedPermissions = [
   "downloads",
   "tabs",
   "sidePanel",
+  "offscreen",
 ] as const;
 
 // ─── Base manifest (shared across all targets) ────────────────────
@@ -66,8 +49,12 @@ const baseManifest = {
     default_title: "__MSG_actionDefaultTitle__",
     default_icon: {
       16: "assets/icon-16.png",
+      20: "assets/icon-20.png",
+      24: "assets/icon-24.png",
       32: "assets/icon-32.png",
+      40: "assets/icon-40.png",
       48: "assets/icon-48.png",
+      64: "assets/icon-64.png",
     },
   },
   side_panel: {
@@ -102,7 +89,17 @@ function targetName(): string {
 }
 
 function targetKey(): Record<string, string> {
-  return TARGET === "yandex" ? { key: readYandexPublicKey() } : {};
+  if (TARGET !== "yandex") return {};
+  const expectedId = process.env.YANDEX_EXTENSION_ID;
+  const actualId = createHash("sha256")
+    .update(Buffer.from(YANDEX_PUBLIC_KEY, "base64"))
+    .digest("hex")
+    .slice(0, 32)
+    .replace(/[0-9a-f]/g, (digit) => String.fromCharCode(97 + Number.parseInt(digit, 16)));
+  if (expectedId && expectedId !== actualId) {
+    throw new Error("Configured Yandex extension ID does not match the public release identity");
+  }
+  return { key: YANDEX_PUBLIC_KEY };
 }
 
 /**

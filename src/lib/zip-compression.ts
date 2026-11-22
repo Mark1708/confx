@@ -1,4 +1,4 @@
-import { Zip, ZipDeflate, ZipPassThrough } from "fflate";
+import { ZipDeflate, ZipPassThrough } from "fflate";
 
 export const DEFLATE_LEVEL = 6;
 
@@ -60,12 +60,8 @@ export function isPrecompressedPath(path: string): boolean {
   return STORE_EXTENSIONS.has(extOf(path));
 }
 
-// Adds a file to the archive, picking DEFLATE for compressible content and
-// STORE (no compression) for already-compressed binary formats.
-export function addZipEntry(zip: Zip, path: string, data: Uint8Array): void {
-  const file = isPrecompressedPath(path)
+export function createZipEntry(path: string): ZipDeflate | ZipPassThrough {
+  return isPrecompressedPath(path)
     ? new ZipPassThrough(path)
     : new ZipDeflate(path, { level: DEFLATE_LEVEL });
-  zip.add(file);
-  file.push(data, true);
 }

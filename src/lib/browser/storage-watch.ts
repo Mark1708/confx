@@ -1,6 +1,6 @@
 /// <reference types="chrome" />
 
-export type StorageArea = "sync" | "local";
+export type StorageArea = "sync" | "local" | "session";
 
 /**
  * Subscribe to chrome.storage.onChanged events for a specific area and key.

@@ -7,7 +7,9 @@ export interface FetchOptions {
 }
 
 type FetchBodyKind = "json" | "blob";
-type QueuedPermit = () => void;
+interface QueuedPermit {
+  grant(): void;
+}
 
 export const DEFAULT_REQUEST_TIMEOUT = 30_000;
 export const DEFAULT_MAX_RETRIES = 3;
@@ -21,14 +23,19 @@ export function normalizePath(path: string): string {
 }
 
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {
-  if (ms <= 0) return Promise.resolve();
   if (signal?.aborted)
     return Promise.reject(new DOMException("The operation was aborted.", "AbortError"));
+  if (ms <= 0) return Promise.resolve();
 
   return new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(resolve, ms);
+    const cleanup = (): void => signal?.removeEventListener("abort", abort);
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
     const abort = (): void => {
       clearTimeout(timeoutId);
+      cleanup();
       reject(new DOMException("The operation was aborted.", "AbortError"));
     };
     signal?.addEventListener("abort", abort, { once: true });
@@ -59,7 +66,11 @@ export function parseRateLimitReset(headers: Headers): number | null {
 }
 
 export function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
+  return hasErrorName(error, "AbortError");
+}
+
+function hasErrorName(error: unknown, name: string): boolean {
+  return typeof error === "object" && error !== null && "name" in error && error.name === name;
 }
 
 export function isTransientStatus(status: number): boolean {
@@ -73,21 +84,37 @@ class Semaphore {
 
   constructor(private readonly limit: number) {}
 
-  async acquire(): Promise<() => void> {
-    if (this.active < this.limit) {
+  async acquire(signal: AbortSignal): Promise<() => void> {
+    signal.throwIfAborted();
+    if (this.active < this.limit && this.queue.length === 0) {
       this.active += 1;
       return () => this.release();
     }
 
-    await new Promise<void>((resolve) => this.queue.push(resolve));
-    this.active += 1;
+    await new Promise<void>((resolve, reject) => {
+      const abort = (): void => {
+        const index = this.queue.indexOf(permit);
+        if (index !== -1) this.queue.splice(index, 1);
+        signal.removeEventListener("abort", abort);
+        reject(signal.reason);
+      };
+      const permit: QueuedPermit = {
+        grant: () => {
+          signal.removeEventListener("abort", abort);
+          resolve();
+        },
+      };
+      this.queue.push(permit);
+      signal.addEventListener("abort", abort, { once: true });
+    });
+    // release() reserves the active permit for this waiter before waking it.
     return () => this.release();
   }
 
   private release(): void {
-    this.active = Math.max(0, this.active - 1);
     const next = this.queue.shift();
-    next?.();
+    if (next) next.grant();
+    else this.active -= 1;
   }
 }
 
@@ -114,13 +141,23 @@ export abstract class HttpClient {
   abstract url(path: string): string;
 
   async fetchJson<T>(path: string, signal?: AbortSignal): Promise<T> {
-    const res = await this.fetchWithPolicy(path, "json", signal);
-    return (await res.json()) as T;
+    return this.requestWithPolicy<T>(
+      path,
+      "json",
+      this.createBaseInit("json"),
+      this.maxRetries,
+      signal,
+    );
   }
 
   async fetchBlob(path: string, signal?: AbortSignal): Promise<Blob> {
-    const res = await this.fetchWithPolicy(path, "blob", signal);
-    return await res.blob();
+    return this.requestWithPolicy<Blob>(
+      path,
+      "blob",
+      this.createBaseInit("blob"),
+      this.maxRetries,
+      signal,
+    );
   }
 
   protected async requestJson<T>(
@@ -128,90 +165,77 @@ export abstract class HttpClient {
     init: RequestInit,
     signal?: AbortSignal,
   ): Promise<T> {
-    const release = await this.semaphore.acquire();
-    try {
-      await this.waitForRateLimit(signal);
-      const res = await this.performRequest(path, this.createMutationInit(init), signal);
-      this.trackRateLimit(res.headers);
-
-      if (!res.ok) throw this.createApiError(path, "json", res, this.apiName);
-      return (await res.json()) as T;
-    } catch (error: unknown) {
-      if (error instanceof ApiError || isAbortError(error)) throw error;
-      throw new NetworkError(`Network error @ ${path}`, path, error);
-    } finally {
-      release();
-    }
+    // Conversions use POST; even a read-only conversion must never be replayed.
+    return this.requestWithPolicy<T>(path, "json", this.createMutationInit(init), 0, signal);
   }
 
-  private async fetchWithPolicy(
+  private async requestWithPolicy<T>(
     path: string,
     bodyKind: FetchBodyKind,
+    init: RequestInit,
+    maxRetries: number,
     signal?: AbortSignal,
-  ): Promise<Response> {
-    for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
-      const release = await this.semaphore.acquire();
+  ): Promise<T> {
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      const controller = new AbortController();
+      const externalAbort = (): void =>
+        controller.abort(new DOMException("The operation was aborted.", "AbortError"));
+      const timeoutId = setTimeout(
+        () => controller.abort(new DOMException(`Request timed out @ ${path}`, "TimeoutError")),
+        this.timeout,
+      );
+      if (signal?.aborted) externalAbort();
+      else signal?.addEventListener("abort", externalAbort, { once: true });
+
+      let release: (() => void) | undefined;
+      let response: Response | undefined;
+      let retryHeaders: Headers | undefined;
       try {
-        await this.waitForRateLimit(signal);
-        const res = await this.performFetch(path, bodyKind, signal);
-        this.trackRateLimit(res.headers);
+        release = await this.semaphore.acquire(controller.signal);
+        await this.waitForRateLimit(controller.signal);
+        controller.signal.throwIfAborted();
+        response = await fetch(this.url(path), createRequestInit(init, controller.signal));
+        controller.signal.throwIfAborted();
+        this.trackRateLimit(response.headers);
 
-        if (res.ok) return res;
-        if (!isTransientStatus(res.status) || attempt === this.maxRetries) {
-          throw this.createApiError(path, bodyKind, res, this.apiName);
+        if (response.ok) {
+          const value = bodyKind === "json" ? await response.json() : await response.blob();
+          controller.signal.throwIfAborted();
+          return value as T;
         }
-
-        await this.waitBeforeRetry(attempt, res.headers, signal);
+        if (!isTransientStatus(response.status) || attempt === maxRetries) {
+          throw this.createApiError(path, bodyKind, response, this.apiName);
+        }
+        retryHeaders = response.headers;
       } catch (error: unknown) {
-        if (error instanceof ApiError || isAbortError(error)) throw error;
-        if (attempt === this.maxRetries) {
+        // Native body readers may throw AbortError for both cases. Keep timeouts
+        // distinguishable from a user's cancellation, including during queueing.
+        if (controller.signal.aborted) throw controller.signal.reason;
+        if (
+          error instanceof ApiError ||
+          isAbortError(error) ||
+          hasErrorName(error, "SyntaxError")
+        ) {
+          throw error;
+        }
+        if (attempt === maxRetries) {
           throw new NetworkError(`Network error @ ${path}`, path, error);
         }
-        await this.waitBeforeRetry(attempt, undefined, signal);
       } finally {
-        release();
+        try {
+          // Status failures have an unread body. A native in-progress body is
+          // interrupted by the same controller that owns fetch and its reader.
+          if (response && !response.bodyUsed) await response.body?.cancel().catch(() => undefined);
+        } finally {
+          clearTimeout(timeoutId);
+          signal?.removeEventListener("abort", externalAbort);
+          release?.();
+        }
       }
+      controller.signal.throwIfAborted();
+      await this.waitBeforeRetry(attempt, retryHeaders, signal);
     }
-
     throw new NetworkError(`Network error @ ${path}`, path);
-  }
-
-  private async performFetch(
-    path: string,
-    bodyKind: FetchBodyKind,
-    signal?: AbortSignal,
-  ): Promise<Response> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-    const externalAbort = (): void => controller.abort();
-    if (signal?.aborted) controller.abort();
-    signal?.addEventListener("abort", externalAbort, { once: true });
-    try {
-      const init = createRequestInit(this.createBaseInit(bodyKind), controller.signal);
-      return await fetch(this.url(path), init);
-    } finally {
-      clearTimeout(timeoutId);
-      signal?.removeEventListener("abort", externalAbort);
-    }
-  }
-
-  private async performRequest(
-    path: string,
-    init: RequestInit,
-    signal?: AbortSignal,
-  ): Promise<Response> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-    const externalAbort = (): void => controller.abort();
-    if (signal?.aborted) controller.abort();
-    signal?.addEventListener("abort", externalAbort, { once: true });
-
-    try {
-      return await fetch(this.url(path), createRequestInit(init, controller.signal));
-    } finally {
-      clearTimeout(timeoutId);
-      signal?.removeEventListener("abort", externalAbort);
-    }
   }
 
   private createBaseInit(bodyKind: FetchBodyKind): RequestInit {

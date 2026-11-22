@@ -1,4 +1,5 @@
 import type { ConfluenceApi, ConfluencePageRaw } from "./confluence-api";
+import { allWithSiblingAbort } from "./parallel-batch";
 
 export interface WalkOptions {
   maxDepth?: number;
@@ -26,16 +27,26 @@ export async function walkTree(
   opts.onPage?.(rootPage, 0);
 
   const queue: WalkResultNode[] = [root];
+  const batchSignal = opts.signal ?? new AbortController().signal;
   while (queue.length) {
-    if (opts.signal?.aborted) break;
+    if (batchSignal.aborted) break;
 
     const batch = queue.splice(0, concurrency);
-    const results = await Promise.all(
-      batch.map(async (node) => {
-        if (node.depth >= maxDepth) return [];
-        const children = await api.getChildren(node.page.id, 100, opts.signal);
-        return children.map((c) => ({ parent: node, page: c }));
-      }),
+    // A fatal child read cancels its in-flight siblings; the batch settles
+    // (cleanup tails included) before the original failure propagates.
+    const results = await allWithSiblingAbort(
+      batchSignal,
+      batch.map(
+        (node) =>
+          (
+            read: AbortSignal,
+          ): Promise<Array<{ parent: WalkResultNode; page: ConfluencePageRaw }>> => {
+            if (node.depth >= maxDepth) return Promise.resolve([]);
+            return api
+              .getChildren(node.page.id, 100, read)
+              .then((children) => children.map((child) => ({ parent: node, page: child })));
+          },
+      ),
     );
     for (const group of results) {
       for (const { parent, page } of group) {

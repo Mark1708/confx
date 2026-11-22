@@ -1,39 +1,38 @@
 import { Bell, BellRing, FolderDown, Loader2, Search, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { BrowserApi } from "@/lib/browser/browser-api";
-import { DEFAULT_PRESET_ID } from "@/lib/rule-engine";
 import { makeSubscriptionId } from "@/lib/subscriptions";
 import type { HostCache } from "@/lib/tree-cache";
 import type { CurrentTabInfo } from "../hooks/useCurrentTab";
 import { useExtractJob } from "../hooks/useExtractJob";
 import { useI18n } from "../hooks/useI18n";
 import { usePageInfo } from "../hooks/usePageInfo";
-import { useSettings } from "../hooks/useSettings";
 import { useSubscriptions } from "../hooks/useSubscriptions";
 import { useTreeStore } from "../hooks/useTreeStore";
 import { Button } from "../ui/button";
 import { Card, CardContent } from "../ui/card";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { JobStatus } from "./JobStatus";
-import { PresetSelector } from "./PresetSelector";
+import { useWorkspace } from "../workspace/WorkspaceProvider";
 import { TreeView } from "./TreeView";
 
-function findTopRoot(nodes: HostCache, pageId: string): string {
-  let cursor = pageId;
+function findCachedPath(nodes: HostCache, pageId: string): string[] | undefined {
+  if (!nodes[pageId]?.title) return undefined;
+  const path: string[] = [];
+  let cursor: string | undefined = pageId;
   const seen = new Set<string>();
-  while (true) {
-    if (seen.has(cursor)) return cursor;
+  while (cursor) {
+    if (seen.has(cursor)) return undefined;
     seen.add(cursor);
-    const parent = nodes[cursor]?.parentId;
-    if (!parent) return cursor;
-    cursor = parent;
+    path.push(cursor);
+    cursor = nodes[cursor]?.parentId;
   }
+  return path.reverse();
 }
 
 function buildPageUrl(host: string, pageId: string): string {
   const base = host.replace(/\/$/, "");
-  return `${base}/pages/viewpage.action?pageId=${pageId}`;
+  return `${base}/pages/viewpage.action?pageId=${encodeURIComponent(pageId)}`;
 }
 
 interface FilterResult {
@@ -78,65 +77,79 @@ function computeClientFilter(nodes: HostCache, rootId: string, query: string): F
 }
 
 export function SubtreePanel({ tab }: { tab: CurrentTabInfo }) {
-  const info = usePageInfo(tab.host, tab.pageId);
+  const { source, sourceKey, draft, patchDraft } = useWorkspace();
+  const { subtree } = draft;
+  const host = draft.source.baseUrl;
+  const available =
+    source?.product === "confluence" &&
+    source.baseUrl === host &&
+    tab.host === host &&
+    tab.accessState === "available";
+  const info = usePageInfo(available ? host : undefined, tab.pageId);
   const { t } = useI18n();
-  const { data: settings, update } = useSettings();
-  const { state, run, cancel } = useExtractJob();
-  const [filter, setFilter] = useState("");
-  const [serverSearchState, setServerSearchState] = useState<
-    | { status: "idle" }
-    | { status: "searching" }
-    | { status: "done"; query: string; count: number }
-    | { status: "error"; message: string }
-  >({ status: "idle" });
+  const { draftLocked } = useExtractJob();
+  const { filter, serverSearch: serverSearchState } = subtree;
   const subs = useSubscriptions();
-  const { cache, loadingIds, ensureChildren, ensurePathWithChildren, reset, search } = useTreeStore(
-    tab.host,
-  );
-
-  const currentPageId = info.data?.meta?.id;
-
-  useEffect(() => {
-    if (!tab.host || !currentPageId) return;
-    void ensurePathWithChildren(currentPageId);
-  }, [tab.host, currentPageId, ensurePathWithChildren]);
-
-  const [stickyRootId, setStickyRootId] = useState<string | undefined>(undefined);
+  const { cache, loadingIds, ensureChildren, ensurePathWithChildren, reset, search } =
+    useTreeStore(host);
+  const meta =
+    !info.isPlaceholderData && info.data?.meta?.id === tab.pageId ? info.data?.meta : undefined;
+  const initialRoot = subtree.rootId ?? (available ? (tab.pageId ?? undefined) : undefined);
 
   useEffect(() => {
-    if (!tab.host) return;
-    setStickyRootId(undefined);
-  }, [tab.host]);
+    if (!available || !initialRoot) return;
+    void ensurePathWithChildren(initialRoot);
+  }, [available, initialRoot, ensurePathWithChildren]);
 
   useEffect(() => {
-    if (!currentPageId) return;
-    const cached = cache[currentPageId];
-    let candidate: string | undefined;
-    if (cached?.title) {
-      candidate = findTopRoot(cache, currentPageId);
-    } else if (info.data?.meta?.ancestors !== undefined) {
-      const anc = info.data.meta.ancestors;
-      candidate = anc.length > 0 ? anc[0].id : currentPageId;
+    if (!available || !initialRoot) return;
+    const path =
+      findCachedPath(cache, initialRoot) ??
+      (meta?.id === initialRoot && meta.ancestors !== undefined
+        ? [...meta.ancestors.map((ancestor) => ancestor.id), initialRoot]
+        : undefined);
+    const initializeRoot = subtree.rootId === undefined;
+    const initializeTree = subtree.treeRootId === undefined && path !== undefined;
+    if (!initializeRoot && !initializeTree) return;
+    patchDraft({
+      subtree: {
+        ...subtree,
+        ...(initializeRoot ? { rootId: initialRoot } : {}),
+        ...(initializeTree && path
+          ? { treeRootId: path[0], expandedIds: [...new Set([...subtree.expandedIds, ...path])] }
+          : {}),
+      },
+    });
+  }, [available, initialRoot, cache, meta, subtree, patchDraft]);
+
+  const topRootId = subtree.treeRootId;
+  const activeRoot = subtree.rootId;
+  const activeTitle = activeRoot
+    ? cache[activeRoot]?.title || (meta?.id === activeRoot ? meta.title : activeRoot)
+    : undefined;
+  const loadedPages = useMemo(() => {
+    if (!activeRoot) return { count: 0, complete: false };
+    const visited = new Set<string>();
+    const pending = [activeRoot];
+    let complete = true;
+    while (pending.length > 0) {
+      const id = pending.pop()!;
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const node = cache[id];
+      if (!node || (!node.childrenLoaded && node.hasChildren !== false)) complete = false;
+      if (node) {
+        for (const childId of node.childrenIds) pending.push(childId);
+      }
     }
-    if (candidate && candidate !== stickyRootId) setStickyRootId(candidate);
-  }, [currentPageId, info.data, cache, stickyRootId]);
-
-  const topRootId = stickyRootId;
+    return { count: visited.size, complete };
+  }, [activeRoot, cache]);
 
   useEffect(() => {
-    if (!topRootId) return;
+    if (!available || !topRootId) return;
     const node = cache[topRootId];
     if (!node?.childrenLoaded) void ensureChildren(topRootId);
-  }, [topRootId, cache, ensureChildren]);
-
-  const activeRoot = currentPageId;
-  const activeTitle = activeRoot ? (cache[activeRoot]?.title ?? info.data?.meta?.title) : undefined;
-
-  useEffect(() => {
-    if (!tab.host) return;
-    setFilter("");
-    setServerSearchState({ status: "idle" });
-  }, [tab.host]);
+  }, [available, topRootId, cache, ensureChildren]);
 
   const clientFilter = useMemo(
     () =>
@@ -146,63 +159,103 @@ export function SubtreePanel({ tab }: { tab: CurrentTabInfo }) {
     [cache, topRootId, filter],
   );
 
-  const spaceKey = info.data?.meta?.spaceKey;
-  const searchedQueryRef = useRef<string | null>(null);
-  const serverTimer = useRef<number | null>(null);
+  const spaceKey =
+    meta && (meta.id === topRootId || meta.ancestors?.some((ancestor) => ancestor.id === topRootId))
+      ? meta.spaceKey
+      : undefined;
+  const hasMatches = clientFilter.matchedIds.size > 0;
+  const searchContext = useRef({
+    sourceKey,
+    subtree,
+    patchDraft,
+    hasMatches,
+  });
+  useLayoutEffect(() => {
+    searchContext.current = { sourceKey, subtree, patchDraft, hasMatches };
+  }, [sourceKey, subtree, patchDraft, hasMatches]);
 
   useEffect(() => {
-    if (serverTimer.current) {
-      clearTimeout(serverTimer.current);
-      serverTimer.current = null;
-    }
-    const q = filter.trim();
-    if (!q || !topRootId) {
-      setServerSearchState({ status: "idle" });
-      searchedQueryRef.current = null;
+    const query = filter.trim();
+    const current = searchContext.current;
+    const previous = current.subtree.serverSearch;
+    if (
+      !available ||
+      !query ||
+      !topRootId ||
+      current.hasMatches ||
+      (previous.query === query && (previous.status === "done" || previous.status === "error"))
+    ) {
       return;
     }
-    if (clientFilter.matchedIds.size > 0) {
-      setServerSearchState({ status: "idle" });
-      return;
-    }
-    if (searchedQueryRef.current === q) {
-      return;
-    }
-    serverTimer.current = setTimeout(async () => {
-      searchedQueryRef.current = q;
-      setServerSearchState({ status: "searching" });
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      const context = searchContext.current;
+      if (
+        !active ||
+        context.sourceKey !== sourceKey ||
+        context.subtree.filter.trim() !== query ||
+        context.hasMatches
+      )
+        return;
+      context.patchDraft({
+        subtree: {
+          ...context.subtree,
+          serverSearch: { status: "searching", query, count: 0 },
+        },
+      });
       try {
-        const hits = await search(q, spaceKey);
-        setServerSearchState({ status: "done", query: q, count: hits.length });
-      } catch (e) {
-        setServerSearchState({
-          status: "error",
-          message: e instanceof Error ? e.message : String(e),
+        const hits = await search(query, spaceKey);
+        const latest = searchContext.current;
+        if (!active || latest.sourceKey !== sourceKey || latest.subtree.filter.trim() !== query) {
+          return;
+        }
+        latest.patchDraft({
+          subtree: {
+            ...latest.subtree,
+            serverSearch: { status: "done", query, count: hits.length },
+          },
+        });
+      } catch (error) {
+        const latest = searchContext.current;
+        if (!active || latest.sourceKey !== sourceKey || latest.subtree.filter.trim() !== query) {
+          return;
+        }
+        latest.patchDraft({
+          subtree: {
+            ...latest.subtree,
+            serverSearch: {
+              status: "error",
+              query,
+              count: 0,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          },
         });
       }
-    }, 500) as unknown as number;
+    }, 500);
     return () => {
-      if (serverTimer.current) {
-        clearTimeout(serverTimer.current);
-        serverTimer.current = null;
-      }
+      active = false;
+      window.clearTimeout(timer);
     };
-  }, [filter, topRootId, clientFilter, search, spaceKey]);
+  }, [filter, topRootId, available, sourceKey, spaceKey, search]);
 
-  const preset = settings?.activePresetId ?? DEFAULT_PRESET_ID;
-
-  const subId = tab.host && activeRoot ? makeSubscriptionId(tab.host, activeRoot, "subtree") : null;
-  const subscribed = Boolean(subId && subs.subscriptions.some((s) => s.id === subId));
+  const subId = activeRoot ? makeSubscriptionId(host, activeRoot, "subtree") : null;
+  const subscribed = Boolean(
+    subId && subs.subscriptions.some((subscription) => subscription.id === subId),
+  );
 
   const handleSelect = (id: string) => {
-    if (!tab.host || !tab.tabId) return;
-    if (id === currentPageId) return;
-    void ensurePathWithChildren(id);
-    void BrowserApi.updateTab(tab.tabId, { url: buildPageUrl(tab.host, id) });
+    if (draftLocked) return;
+    patchDraft({ subtree: { ...subtree, rootId: id } });
+  };
+
+  const handleNavigate = (id: string) => {
+    if (!available || !source) return;
+    void BrowserApi.updateTab(source.tabId, { url: buildPageUrl(source.baseUrl, id) });
   };
 
   const handleExpand = (id: string) => {
-    void ensureChildren(id);
+    if (available) void ensureChildren(id);
   };
 
   const filterActive = filter.trim().length > 0;
@@ -215,16 +268,21 @@ export function SubtreePanel({ tab }: { tab: CurrentTabInfo }) {
     serverSearchState.count === 0;
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col gap-3">
-      {tab.host && topRootId ? (
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-1">
+    <div className="flex min-w-0 flex-col gap-3">
+      {topRootId ? (
+        <div className="flex min-w-0 flex-col gap-1">
           <div className="flex min-w-0 items-center justify-between gap-2">
             <Label>{t("subtree.title")}</Label>
             <button
               type="button"
-              onClick={() => void reset()}
+              onClick={async () => {
+                await reset();
+                if (available && activeRoot) await ensurePathWithChildren(activeRoot);
+              }}
               className="grid h-5 w-5 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
               title={t("subtree.resetCacheTitle")}
+              aria-label={t("subtree.resetCacheTitle")}
+              disabled={!available}
             >
               <Trash2 className="h-3 w-3" />
             </button>
@@ -234,16 +292,34 @@ export function SubtreePanel({ tab }: { tab: CurrentTabInfo }) {
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={filter}
-              onChange={(e) => setFilter(e.target.value)}
+              aria-label={t("subtree.filterPlaceholder")}
+              onChange={(event) =>
+                patchDraft({
+                  subtree: {
+                    ...subtree,
+                    filter: event.target.value,
+                    serverSearch: { status: "idle", query: "", count: 0 },
+                  },
+                })
+              }
               placeholder={t("subtree.filterPlaceholder")}
               className="pl-7 pr-7"
             />
             {filter && (
               <button
                 type="button"
-                onClick={() => setFilter("")}
+                onClick={() =>
+                  patchDraft({
+                    subtree: {
+                      ...subtree,
+                      filter: "",
+                      serverSearch: { status: "idle", query: "", count: 0 },
+                    },
+                  })
+                }
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 title={t("subtree.clearFilterTitle")}
+                aria-label={t("subtree.clearFilterTitle")}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -260,26 +336,33 @@ export function SubtreePanel({ tab }: { tab: CurrentTabInfo }) {
             <div className="px-2 py-1 text-xs text-muted-foreground">{t("subtree.noResults")}</div>
           )}
           {serverSearchState.status === "error" && (
-            <div className="px-2 py-1 text-xs text-destructive">{serverSearchState.message}</div>
+            <div role="alert" className="px-2 py-1 text-xs text-destructive">
+              {serverSearchState.error}
+            </div>
           )}
 
           <TreeView
             nodes={cache}
             rootId={topRootId}
             selectedId={activeRoot}
+            expandedIds={subtree.expandedIds}
+            onExpandedChange={(expandedIds) => patchDraft({ subtree: { ...subtree, expandedIds } })}
+            selectionDisabled={draftLocked}
+            navigationDisabled={!available}
             filter={filter}
             loadingIds={loadingIds}
             visibleIds={filterActive ? clientFilter.visibleIds : null}
             matchedIds={filterActive ? clientFilter.matchedIds : null}
             onSelect={handleSelect}
             onExpand={handleExpand}
+            onNavigate={handleNavigate}
           />
         </div>
       ) : (
         <Card className="flex-1 border-primary/30 bg-primary/5">
           <CardContent className="flex h-full items-center p-4 text-xs text-muted-foreground">
             <div className="flex min-w-0 items-start gap-3">
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-surface shadow-[0_0_16px_hsl(var(--accent-glow))]">
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-surface">
                 <FolderDown className="h-4 w-4 text-primary" />
               </div>
               <div className="min-w-0 space-y-1">
@@ -292,40 +375,29 @@ export function SubtreePanel({ tab }: { tab: CurrentTabInfo }) {
       )}
 
       <div className="min-w-0 shrink-0 space-y-3">
-        <div className="space-y-1">
-          <Label>{t("subtree.preset")}</Label>
-          <PresetSelector value={preset} onChange={(id) => update({ activePresetId: id })} />
+        <div className="rounded-md border bg-muted/40 p-2 text-xs">
+          <p className="break-words font-medium" data-export-root={activeRoot}>
+            {t("composer.selectedRoot", { title: activeTitle ?? t("subtree.extractDefault") })}
+          </p>
+          <p className="mt-1 text-muted-foreground">{t("composer.rootHelp")}</p>
+          <p className="mt-1 text-muted-foreground">
+            {t(loadedPages.complete ? "composer.discoveredPages" : "composer.loadedPages", {
+              count: loadedPages.count,
+            })}
+          </p>
         </div>
-
-        <Button
-          className="w-full"
-          disabled={!activeRoot || !tab.host || state?.status === "running"}
-          onClick={() =>
-            activeRoot &&
-            tab.host &&
-            run({
-              kind: "extract-subtree",
-              rootPageId: activeRoot,
-              host: tab.host,
-              presetId: preset,
-            })
-          }
-        >
-          <FolderDown className="h-4 w-4" />
-          {activeTitle
-            ? t("subtree.extractNamed", { title: activeTitle })
-            : t("subtree.extractDefault")}
-        </Button>
 
         <Button
           variant="outline"
           className="w-full"
-          disabled={!activeRoot || !tab.host || subs.subscribing || subscribed}
+          disabled={
+            !activeRoot || !available || subs.subscribing || subscribed || Boolean(subs.error)
+          }
           onClick={() =>
             activeRoot &&
-            tab.host &&
+            available &&
             subs.subscribe({
-              host: tab.host,
+              host,
               rootId: activeRoot,
               scope: "subtree",
             })
@@ -344,8 +416,11 @@ export function SubtreePanel({ tab }: { tab: CurrentTabInfo }) {
               ? t("subtree.subscribeNamed", { title: activeTitle })
               : t("subtree.subscribeDefault")}
         </Button>
-
-        <JobStatus state={state} onCancel={cancel} />
+        {subs.error && (
+          <p role="alert" className="text-xs text-destructive">
+            {subs.error.message}
+          </p>
+        )}
       </div>
     </div>
   );

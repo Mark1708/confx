@@ -42,6 +42,44 @@ export interface BaseUrl {
 
 const CONFLUENCE_BASE_PATHS = ["/wiki", "/confluence"];
 
+export async function collectConfluencePages<T extends { id: string }>(
+  fetchBatch: (start: number) => Promise<{ results: T[]; start?: number }>,
+): Promise<T[]> {
+  const all: T[] = [];
+  const seen = new Set<string>();
+  let start = 0;
+  while (true) {
+    const batch = await fetchBatch(start);
+    if (batch.start !== undefined && batch.start !== start) {
+      throw new Error(
+        `Confluence pagination error: expected offset ${start}, received ${batch.start}`,
+      );
+    }
+    if (batch.results.length === 0) return all;
+    for (const item of batch.results) {
+      if (seen.has(item.id)) {
+        throw new Error(`Confluence pagination error: repeated content id ${item.id}`);
+      }
+      seen.add(item.id);
+      all.push(item);
+    }
+    const next = start + batch.results.length;
+    if (!Number.isSafeInteger(next) || next <= start) {
+      throw new Error("Confluence pagination error: offset did not advance");
+    }
+    start = next;
+  }
+}
+
+function cqlLiteral(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function contentIdSegment(value: string): string {
+  if (!/^[0-9]+$/.test(value)) throw new Error(`Invalid Confluence content id: ${value}`);
+  return encodeURIComponent(value);
+}
+
 function normalizeBasePath(path: string): string {
   const normalized = normalizePath(path).replace(/\/$/, "");
   return normalized === "/" ? "" : normalized;
@@ -118,111 +156,46 @@ export class ConfluenceApi extends HttpClient {
     expand: string[] = [],
     signal?: AbortSignal,
   ): Promise<ConfluencePageRaw> {
+    const id = contentIdSegment(pageId);
     const params = new URLSearchParams();
     if (expand.length) params.set("expand", expand.join(","));
     const qs = params.toString();
     return this.fetchJson<ConfluencePageRaw>(
-      `/rest/api/content/${pageId}${qs ? `?${qs}` : ""}`,
+      `/rest/api/content/${id}${qs ? `?${qs}` : ""}`,
       signal,
     );
   }
 
-  async createPage(
-    input: {
-      title: string;
-      spaceKey: string;
-      parentId?: string;
-      storage: string;
-    },
-    signal?: AbortSignal,
-  ): Promise<ConfluencePageRaw> {
-    const payload: Record<string, unknown> = {
-      type: "page",
-      title: input.title,
-      space: { key: input.spaceKey },
-    };
-    if (input.parentId) payload.ancestors = [{ id: input.parentId }];
-    payload.body = {
-      storage: {
-        value: input.storage,
-        representation: "storage",
-      },
-    };
-
-    return this.requestJson<ConfluencePageRaw>(
-      "/rest/api/content",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      },
-      signal,
-    );
-  }
-
-  async updatePage(
-    input: {
-      id: string;
-      title: string;
-      spaceKey: string;
-      storage: string;
-      version: number;
-    },
-    signal?: AbortSignal,
-  ): Promise<ConfluencePageRaw> {
-    return this.requestJson<ConfluencePageRaw>(
-      `/rest/api/content/${input.id}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: input.id,
-          type: "page",
-          title: input.title,
-          space: { key: input.spaceKey },
-          version: { number: input.version },
-          body: {
-            storage: {
-              value: input.storage,
-              representation: "storage",
-            },
-          },
-        }),
-      },
-      signal,
-    );
-  }
-
-  async renderStorage(storage: string, signal?: AbortSignal): Promise<string> {
-    const response = await this.requestJson<{ value?: string }>(
-      "/rest/api/contentbody/convert/view",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ representation: "storage", value: storage }),
-      },
-      signal,
-    );
-    return response.value ?? "";
-  }
-
-  async uploadAttachment(
+  /** Convert in page context without saving content or creating a draft. */
+  async convertBody(
+    value: string,
+    from: "storage" | "editor",
+    to: "storage" | "editor",
     pageId: string,
-    file: File,
     signal?: AbortSignal,
-  ): Promise<ConfluenceAttachmentRaw[]> {
-    const body = new FormData();
-    body.set("file", file);
-    const response = await this.requestJson<{ results?: ConfluenceAttachmentRaw[] }>(
-      `/rest/api/content/${pageId}/child/attachment`,
+  ): Promise<string> {
+    const id = contentIdSegment(pageId);
+    if (
+      typeof value !== "string" ||
+      !["storage", "editor"].includes(from) ||
+      !["storage", "editor"].includes(to) ||
+      from === to
+    ) {
+      throw new Error("Unsupported Confluence body conversion");
+    }
+    const response = await this.requestJson<{ value?: string; representation?: string }>(
+      `/rest/api/contentbody/convert/${to}`,
       {
         method: "POST",
-        headers: { "X-Atlassian-Token": "nocheck" },
-        body,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ representation: from, value, content: { id } }),
       },
       signal,
     );
-    return response.results ?? [];
+    if (typeof response.value !== "string" || response.representation !== to) {
+      throw new Error("Confluence conversion returned an invalid body representation");
+    }
+    return response.value;
   }
 
   async getChildren(
@@ -230,33 +203,36 @@ export class ConfluenceApi extends HttpClient {
     limit = 100,
     signal?: AbortSignal,
   ): Promise<ConfluencePageRaw[]> {
-    const all: ConfluencePageRaw[] = [];
-    let start = 0;
-    while (true) {
-      const res = await this.fetchJson<{ results: ConfluencePageRaw[]; size: number }>(
-        `/rest/api/content/${pageId}/child/page?limit=${limit}&start=${start}`,
+    const id = contentIdSegment(pageId);
+    return collectConfluencePages((start) =>
+      this.fetchJson<{ results: ConfluencePageRaw[]; start?: number }>(
+        `/rest/api/content/${id}/child/page?limit=${limit}&start=${start}`,
         signal,
-      );
-      all.push(...res.results);
-      if (!res.results.length || res.results.length < limit) break;
-      start += res.results.length;
-      if (start > 5000) break;
-    }
-    return all;
+      ),
+    );
   }
 
   async getAttachments(pageId: string, signal?: AbortSignal): Promise<AttachmentInfo[]> {
-    const res = await this.fetchJson<{ results: ConfluenceAttachmentRaw[] }>(
-      `/rest/api/content/${pageId}/child/attachment?limit=200`,
-      signal,
-    );
-    return res.results.map((a) => ({
-      id: a.id,
-      title: a.title,
-      mediaType: a.extensions?.mediaType ?? "application/octet-stream",
-      fileSize: a.extensions?.fileSize ?? 0,
-      downloadPath: a._links?.download ?? "",
-      containerId: a.container?.id ?? pageId,
+    const id = contentIdSegment(pageId);
+    const all: ConfluenceAttachmentRaw[] = [];
+    const limit = 200;
+    let start = 0;
+    while (true) {
+      const res = await this.fetchJson<{ results: ConfluenceAttachmentRaw[] }>(
+        `/rest/api/content/${id}/child/attachment?limit=${limit}&start=${start}`,
+        signal,
+      );
+      all.push(...res.results);
+      if (res.results.length < limit) break;
+      start += res.results.length;
+    }
+    return all.map((attachment) => ({
+      id: attachment.id,
+      title: attachment.title,
+      mediaType: attachment.extensions?.mediaType ?? "application/octet-stream",
+      fileSize: attachment.extensions?.fileSize ?? 0,
+      downloadPath: attachment._links?.download ?? "",
+      containerId: attachment.container?.id ?? pageId,
     }));
   }
 
@@ -280,16 +256,26 @@ export class ConfluenceApi extends HttpClient {
     options?: { label?: string; prefix?: string },
     signal?: AbortSignal,
   ): Promise<ConfluencePageMeta[]> {
+    const params = new URLSearchParams({ limit: "200" });
     const path = options?.label
-      ? `/rest/api/content?${new URLSearchParams({
-          cql: `space="${spaceKey}" and type=page and label="${options.label}"`,
-          limit: "200",
-        }).toString()}`
-      : `/rest/api/space/${spaceKey}/content/page?limit=200`;
-    const raw = await this.fetchJson<{ results: ConfluencePageRaw[] }>(path, signal);
+      ? "/rest/api/content/search"
+      : `/rest/api/space/${encodeURIComponent(spaceKey)}/content/page`;
+    if (options?.label) {
+      params.set(
+        "cql",
+        `space=${cqlLiteral(spaceKey)} and type=page and label=${cqlLiteral(options.label)}`,
+      );
+    }
+    const raw = await collectConfluencePages((start) => {
+      params.set("start", String(start));
+      return this.fetchJson<{ results: ConfluencePageRaw[]; start?: number }>(
+        `${path}?${params.toString()}`,
+        signal,
+      );
+    });
     const pages = options?.prefix
-      ? raw.results.filter((page) => page.title.startsWith(options.prefix ?? ""))
-      : raw.results;
+      ? raw.filter((page) => page.title.startsWith(options.prefix ?? ""))
+      : raw;
     return pages.map((page) => this.toPageMeta(page));
   }
 

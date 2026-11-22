@@ -37,14 +37,19 @@ function manifestPlugin(): Plugin {
 }
 
 function htmlEntriesPlugin(): Plugin {
-  const entries = ["sidepanel", "options", "viewer"] as const;
+  const entries = [
+    "sidepanel/index.html",
+    "options/index.html",
+    "viewer/index.html",
+    "offscreen/icon-theme.html",
+  ] as const;
   return {
     name: "confx-html-entries",
     writeBundle: (options: { dir?: string }) => {
       const outputRoot = path.resolve(__dirname, options.dir ?? "dist");
       entries.forEach((entry) => {
-        const source = path.join(outputRoot, "src", entry, "index.html");
-        const destination = path.join(outputRoot, entry, "index.html");
+        const source = path.join(outputRoot, "src", entry);
+        const destination = path.join(outputRoot, entry);
         if (!existsSync(source)) return;
         mkdirSync(path.dirname(destination), { recursive: true });
         cpSync(source, destination);
@@ -115,6 +120,7 @@ export default defineConfig({
         viewer: path.resolve(__dirname, "src/viewer/index.html"),
         sidepanel: path.resolve(__dirname, "src/sidepanel/index.html"),
         options: path.resolve(__dirname, "src/options/index.html"),
+        "icon-theme": path.resolve(__dirname, "src/offscreen/icon-theme.html"),
         "content-scripts/picker-entry": path.resolve(__dirname, "src/content/picker-entry.ts"),
         "background/service-worker": path.resolve(__dirname, "src/background/service-worker.ts"),
       },

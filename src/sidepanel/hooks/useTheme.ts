@@ -1,16 +1,21 @@
-import { useEffect } from "react";
-import type { Theme } from "@/types";
+import { useLayoutEffect } from "react";
+import { applyAppearance, watchSystemTheme } from "@/lib/appearance";
+import { reportToolbarSystemTheme } from "@/lib/browser/toolbar-theme";
+import { DEFAULT_SETTINGS } from "@/lib/settings";
 import { useSettings } from "./useSettings";
 
-const THEME_CLASSES: Theme[] = ["light", "dark"];
-
-/** Applies the user's theme by toggling a class on <html>. */
+/** Applies resolved appearance preferences before the owning surface paints. */
 export function useTheme(): void {
   const { data } = useSettings();
-  const theme: Theme = data?.theme ?? "dark";
-  useEffect(() => {
+  const { theme, palette } = data ?? DEFAULT_SETTINGS;
+  useLayoutEffect(() => {
     const root = document.documentElement;
-    for (const t of THEME_CLASSES) root.classList.remove(t);
-    root.classList.add(theme);
-  }, [theme]);
+    if (theme === "system") {
+      return watchSystemTheme((resolved) => {
+        applyAppearance(root, resolved, palette);
+        void reportToolbarSystemTheme(resolved);
+      });
+    }
+    applyAppearance(root, theme, palette);
+  }, [theme, palette]);
 }

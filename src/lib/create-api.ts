@@ -1,17 +1,11 @@
-import { ConfluenceApi, extractBaseUrl, type FetchOptions } from "@/lib/confluence-api";
+import { ConfluenceApi, type FetchOptions } from "@/lib/confluence-api";
 import { JiraApi } from "@/lib/jira-api";
-import { DEFAULT_SETTINGS, loadSettings } from "@/lib/settings";
+import { canonicalBaseUrl } from "@/lib/source-context";
 import type { AppSettings } from "@/types";
 
-async function loadApiSettings(): Promise<AppSettings> {
-  try {
-    return await loadSettings();
-  } catch {
-    return { ...DEFAULT_SETTINGS };
-  }
-}
-
-function toFetchOptions(settings: AppSettings): FetchOptions {
+export function toFetchOptions(
+  settings: Pick<AppSettings, "requestTimeout" | "maxRetries" | "maxConcurrency">,
+): FetchOptions {
   return {
     timeout: settings.requestTimeout,
     maxRetries: settings.maxRetries,
@@ -19,13 +13,11 @@ function toFetchOptions(settings: AppSettings): FetchOptions {
   };
 }
 
-export async function createConfluenceApi(host: string): Promise<ConfluenceApi> {
-  const settings = await loadApiSettings();
-  const baseUrl = extractBaseUrl(settings.confluenceBaseUrl || host);
-  return new ConfluenceApi(baseUrl, toFetchOptions(settings));
+export function createConfluenceApi(resolvedBaseUrl: string, options: FetchOptions): ConfluenceApi {
+  const base = new URL(canonicalBaseUrl(resolvedBaseUrl));
+  return new ConfluenceApi({ origin: base.origin, basePath: base.pathname }, options);
 }
 
-export async function createJiraApi(baseUrl: string): Promise<JiraApi> {
-  const settings = await loadApiSettings();
-  return new JiraApi(baseUrl, toFetchOptions(settings));
+export function createJiraApi(resolvedBaseUrl: string, options: FetchOptions): JiraApi {
+  return new JiraApi(canonicalBaseUrl(resolvedBaseUrl), options);
 }

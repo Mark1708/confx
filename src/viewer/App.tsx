@@ -2,15 +2,16 @@ import { useQuery } from "@tanstack/react-query";
 import { Copy, Download, Loader2 } from "lucide-react";
 import { marked } from "marked";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createConfluenceApi } from "@/lib/create-api";
+import { createConfluenceApi, toFetchOptions } from "@/lib/create-api";
 import { extractFromHtml } from "@/lib/extractor";
-import { ImageDedup } from "@/lib/image-fetcher";
-import { getPreset } from "@/lib/rule-engine";
 import { loadSettings } from "@/lib/settings";
+import { resolveSourceBase } from "@/lib/source-context";
 import { slugify } from "@/lib/table-to-csv";
 import { useFontSize } from "@/sidepanel/hooks/useFontSize";
 import { useI18n } from "@/sidepanel/hooks/useI18n";
 import { useTheme } from "@/sidepanel/hooks/useTheme";
+
+import { sanitizeViewerHtml } from "@/viewer/sanitize";
 
 type ViewMode = "formatted" | "raw";
 
@@ -29,28 +30,45 @@ function readParams(): ViewerParams | null {
   return { host, pageId, title };
 }
 
-async function fetchMarkdown(params: ViewerParams): Promise<{ markdown: string; title: string }> {
+async function fetchMarkdown(
+  params: ViewerParams,
+  signal?: AbortSignal,
+): Promise<{ markdown: string; title: string }> {
   const settings = await loadSettings();
-  const preset = getPreset(settings.activePresetId);
-  const api = await createConfluenceApi(params.host);
+  signal?.throwIfAborted();
+  const { baseUrl } = resolveSourceBase(params.host, params.host, settings.confluenceBaseUrl);
+  const api = createConfluenceApi(baseUrl, toFetchOptions(settings));
 
-  const raw = await api.getPage(params.pageId, [
-    "body.view",
-    "children.attachment",
-    "ancestors",
-    "space",
-    "version",
-    "metadata.labels",
-  ]);
+  const raw = await api.getPage(
+    params.pageId,
+    [
+      "body.view",
+      "body.storage",
+      "children.attachment",
+      "ancestors",
+      "space",
+      "version",
+      "metadata.labels",
+    ],
+    signal,
+  );
+  signal?.throwIfAborted();
   const meta = api.toPageMeta(raw);
   const html = raw.body?.view?.value ?? "";
 
   const extracted = await extractFromHtml(api, html, meta, {
-    rules: [...preset.rules, ...settings.customRules],
+    rules: [...settings.exportDefaults.conversion.presetRules, ...settings.customRules],
     folder: "",
-    includeFrontMatter: settings.includeFrontMatter,
+    includeFrontMatter: settings.exportDefaults.conversion.includeFrontMatter,
+    includeEditable: false,
+    exportImages: false,
+    exportAttachments: false,
+    exportPlantUmlAssets: false,
+    storageHtml: raw.body?.storage?.value,
     rewriteLinks: false,
-    dedup: settings.deduplicateImages ? new ImageDedup() : undefined,
+    includeComments: false,
+    includeHistory: false,
+    signal,
   });
 
   return { markdown: extracted.markdown, title: meta.title };
@@ -58,9 +76,10 @@ async function fetchMarkdown(params: ViewerParams): Promise<{ markdown: string; 
 
 async function fetchViewerMarkdown(
   params: ViewerParams | null,
+  signal?: AbortSignal,
 ): Promise<{ markdown: string; title: string }> {
   if (!params) throw new Error("Missing viewer parameters");
-  return fetchMarkdown(params);
+  return fetchMarkdown(params, signal);
 }
 
 export function App() {
@@ -76,7 +95,7 @@ export function App() {
 
   const query = useQuery({
     queryKey: ["viewer-md", params?.host, params?.pageId],
-    queryFn: () => fetchViewerMarkdown(params),
+    queryFn: ({ signal }) => fetchViewerMarkdown(params, signal),
     enabled: !!params,
   });
 
@@ -90,11 +109,13 @@ export function App() {
   const rendered = useMemo(() => {
     if (!query.data?.markdown) return "";
     try {
-      return marked.parse(query.data.markdown, {
-        async: false,
-        breaks: false,
-        gfm: true,
-      }) as string;
+      return sanitizeViewerHtml(
+        marked.parse(query.data.markdown, {
+          async: false,
+          breaks: false,
+          gfm: true,
+        }) as string,
+      );
     } catch (err) {
       console.error("[viewer] marked parse error", err);
       return "";

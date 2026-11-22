@@ -186,7 +186,9 @@ describe("ConfluenceApi", () => {
   });
 
   it("fetchJson throws status and statusText on API errors", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ message: "nope" }, { status: 404, statusText: "Not Found" }));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ message: "nope" }, { status: 404, statusText: "Not Found" }),
+    );
     const api = new ConfluenceApi("https://confluence.example.com");
 
     await expect(api.fetchJson("/rest/api/content/missing")).rejects.toThrow(
@@ -204,9 +206,12 @@ describe("ConfluenceApi", () => {
 
     expect(await result.text()).toBe("file content");
     expect(result.type).toBe("text/plain");
-    expect(fetchMock).toHaveBeenCalledWith("https://confluence.example.com/download/attachments/1/file.txt", {
-      credentials: "include",
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://confluence.example.com/download/attachments/1/file.txt",
+      {
+        credentials: "include",
+      },
+    );
   });
 
   it("fetchBlob preserves absolute attachment URLs", async () => {
@@ -215,20 +220,28 @@ describe("ConfluenceApi", () => {
 
     await api.fetchBlob("https://cdn.example.com/wiki/download/attachments/1/file.png");
 
-    expect(fetchMock).toHaveBeenCalledWith("https://cdn.example.com/wiki/download/attachments/1/file.png", {
-      credentials: "include",
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://cdn.example.com/wiki/download/attachments/1/file.png",
+      {
+        credentials: "include",
+      },
+    );
   });
 
   it("fetchBlob does not duplicate the detected Confluence base path", async () => {
     fetchMock.mockResolvedValueOnce(new Response("file content"));
-    const api = new ConfluenceApi(extractBaseUrl("https://confluence.example.com/wiki/spaces/DEV/pages/123"));
+    const api = new ConfluenceApi(
+      extractBaseUrl("https://confluence.example.com/wiki/spaces/DEV/pages/123"),
+    );
 
     await api.fetchBlob("/wiki/download/attachments/1/file.png");
 
-    expect(fetchMock).toHaveBeenCalledWith("https://confluence.example.com/wiki/download/attachments/1/file.png", {
-      credentials: "include",
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://confluence.example.com/wiki/download/attachments/1/file.png",
+      {
+        credentials: "include",
+      },
+    );
   });
 
   it("fetchBlob throws status and statusText on download errors", async () => {
@@ -258,9 +271,9 @@ describe("ConfluenceApi", () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(page));
     const api = new ConfluenceApi("https://confluence.example.com");
 
-    await expect(api.getPage("123", ["body.storage", "version", "metadata.labels"])).resolves.toEqual(
-      page,
-    );
+    await expect(
+      api.getPage("123", ["body.storage", "version", "metadata.labels"]),
+    ).resolves.toEqual(page);
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://confluence.example.com/rest/api/content/123?expand=body.storage%2Cversion%2Cmetadata.labels",
@@ -271,19 +284,20 @@ describe("ConfluenceApi", () => {
     );
   });
 
-  it("getChildren collects pages across pagination and stops when a page is shorter than limit", async () => {
+  it("getChildren collects pages across short batches and stops only at an empty response", async () => {
     const firstPage = [makePage("1"), makePage("2")];
     const secondPage = [makePage("3")];
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ results: firstPage, size: firstPage.length }))
-      .mockResolvedValueOnce(jsonResponse({ results: secondPage, size: secondPage.length }));
+      .mockResolvedValueOnce(jsonResponse({ results: secondPage, size: secondPage.length }))
+      .mockResolvedValueOnce(jsonResponse({ results: [], size: 0 }));
     const api = new ConfluenceApi("https://confluence.example.com");
 
-    await expect(api.getChildren("root", 2)).resolves.toEqual([...firstPage, ...secondPage]);
+    await expect(api.getChildren("100", 2)).resolves.toEqual([...firstPage, ...secondPage]);
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      "https://confluence.example.com/rest/api/content/root/child/page?limit=2&start=0",
+      "https://confluence.example.com/rest/api/content/100/child/page?limit=2&start=0",
       {
         credentials: "include",
         headers: { Accept: "application/json" },
@@ -291,7 +305,7 @@ describe("ConfluenceApi", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      "https://confluence.example.com/rest/api/content/root/child/page?limit=2&start=2",
+      "https://confluence.example.com/rest/api/content/100/child/page?limit=2&start=2",
       {
         credentials: "include",
         headers: { Accept: "application/json" },
@@ -303,30 +317,11 @@ describe("ConfluenceApi", () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ results: [], size: 0 }));
     const api = new ConfluenceApi("https://confluence.example.com");
 
-    await expect(api.getChildren("root", 100)).resolves.toEqual([]);
+    await expect(api.getChildren("100", 100)).resolves.toEqual([]);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("getChildren stops at the 5000 start safety cap", async () => {
-    const pageBatch = Array.from({ length: 1000 }, (_, index) => makePage(`page-${index}`));
-    fetchMock.mockImplementation(() =>
-      Promise.resolve(jsonResponse({ results: pageBatch, size: pageBatch.length })),
-    );
-    const api = new ConfluenceApi("https://confluence.example.com");
-
-    const result = await api.getChildren("root", 1000);
-
-    expect(result).toHaveLength(6000);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
-    expect(fetchMock).toHaveBeenLastCalledWith(
-      "https://confluence.example.com/rest/api/content/root/child/page?limit=1000&start=5000",
-      {
-        credentials: "include",
-        headers: { Accept: "application/json" },
-      },
-    );
-  });
 
   it("getAttachments maps raw attachments and keeps provided metadata", async () => {
     const rawAttachment: ConfluenceAttachmentRaw = {
@@ -350,9 +345,9 @@ describe("ConfluenceApi", () => {
       },
     ];
 
-    await expect(api.getAttachments("page-1")).resolves.toEqual(expected);
+    await expect(api.getAttachments("100")).resolves.toEqual(expected);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://confluence.example.com/rest/api/content/page-1/child/attachment?limit=200",
+      "https://confluence.example.com/rest/api/content/100/child/attachment?limit=200&start=0",
       {
         credentials: "include",
         headers: { Accept: "application/json" },
@@ -368,16 +363,42 @@ describe("ConfluenceApi", () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ results: [rawAttachment] }));
     const api = new ConfluenceApi("https://confluence.example.com");
 
-    await expect(api.getAttachments("page-1")).resolves.toEqual([
+    await expect(api.getAttachments("100")).resolves.toEqual([
       {
         id: "att-2",
         title: "unknown.bin",
         mediaType: "application/octet-stream",
         fileSize: 0,
         downloadPath: "",
-        containerId: "page-1",
+        containerId: "100",
       },
     ]);
+  });
+
+  it("paginates attachments beyond the first 200 results", async () => {
+    const first = Array.from({ length: 200 }, (_, index) => ({
+      id: `att-${index}`,
+      title: `file-${index}.bin`,
+    }));
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ results: first }))
+      .mockResolvedValueOnce(jsonResponse({ results: [{ id: "att-200", title: "last.bin" }] }));
+    const api = new ConfluenceApi("https://confluence.example.com");
+
+    await expect(api.getAttachments("100")).resolves.toHaveLength(201);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://confluence.example.com/rest/api/content/100/child/attachment?limit=200&start=200",
+      expect.any(Object),
+    );
+  });
+
+  it("rejects non-numeric content IDs before issuing a request", async () => {
+    const api = new ConfluenceApi("https://confluence.example.com");
+
+    await expect(api.getPage("../admin")).rejects.toThrow("Invalid Confluence content id");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   describe("getSpace", () => {
@@ -506,9 +527,11 @@ describe("ConfluenceApi", () => {
       controller.abort();
       const api = new ConfluenceApi("https://confluence.example.com");
 
-      await expect(api.fetchJson("/rest/api/content/123", controller.signal)).rejects.toMatchObject({
-        name: "AbortError",
-      });
+      await expect(api.fetchJson("/rest/api/content/123", controller.signal)).rejects.toMatchObject(
+        {
+          name: "AbortError",
+        },
+      );
     });
 
     it("fetchBlob with aborted signal throws AbortError", async () => {
@@ -534,9 +557,7 @@ describe("ConfluenceApi", () => {
     it("constructs URLs from a BaseUrl constructor argument", () => {
       const api = new ConfluenceApi({ origin: "https://corp.atlassian.net", basePath: "/wiki" });
 
-      expect(api.url("/rest/api/content")).toBe(
-        "https://corp.atlassian.net/wiki/rest/api/content",
-      );
+      expect(api.url("/rest/api/content")).toBe("https://corp.atlassian.net/wiki/rest/api/content");
       expect(api.baseUrl).toEqual({ origin: "https://corp.atlassian.net", basePath: "/wiki" });
     });
 
@@ -544,135 +565,6 @@ describe("ConfluenceApi", () => {
       const api = new ConfluenceApi({ origin: "https://corp.atlassian.net", basePath: "/wiki" });
 
       expect(api.toPageMeta(makePage("789")).baseUrl).toBe("https://corp.atlassian.net");
-    });
-  });
-
-  describe("publishing mutations", () => {
-    it("posts a storage page create request", async () => {
-      const page = makePage("created", "Created page");
-      fetchMock.mockResolvedValueOnce(jsonResponse(page));
-      const api = new ConfluenceApi("https://confluence.example.com/wiki");
-
-      await expect(
-        api.createPage({
-          title: "Created page",
-          spaceKey: "DEV",
-          parentId: "100",
-          storage: "<p>Hello</p>",
-        }),
-      ).resolves.toEqual(page);
-
-      expect(fetchMock).toHaveBeenCalledWith(
-        "https://confluence.example.com/wiki/rest/api/content",
-        expect.objectContaining({
-          method: "POST",
-          credentials: "include",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            type: "page",
-            title: "Created page",
-            space: { key: "DEV" },
-            ancestors: [{ id: "100" }],
-            body: {
-              storage: {
-                value: "<p>Hello</p>",
-                representation: "storage",
-              },
-            },
-          }),
-        }),
-      );
-    });
-
-    it("puts a versioned storage page update request", async () => {
-      const page = makePage("123", "Updated page");
-      fetchMock.mockResolvedValueOnce(jsonResponse(page));
-      const api = new ConfluenceApi("https://confluence.example.com");
-
-      await expect(
-        api.updatePage({
-          id: "123",
-          title: "Updated page",
-          spaceKey: "DEV",
-          version: 8,
-          storage: "<p>Updated</p>",
-        }),
-      ).resolves.toEqual(page);
-
-      expect(fetchMock).toHaveBeenCalledWith(
-        "https://confluence.example.com/rest/api/content/123",
-        expect.objectContaining({
-          method: "PUT",
-          credentials: "include",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            id: "123",
-            type: "page",
-            title: "Updated page",
-            space: { key: "DEV" },
-            version: { number: 8 },
-            body: {
-              storage: {
-                value: "<p>Updated</p>",
-                representation: "storage",
-              },
-            },
-          }),
-        }),
-      );
-    });
-
-    it("posts storage conversion and returns rendered HTML", async () => {
-      fetchMock.mockResolvedValueOnce(jsonResponse({ value: "<div>Preview</div>" }));
-      const api = new ConfluenceApi("https://confluence.example.com");
-
-      await expect(api.renderStorage("<p>Preview</p>")).resolves.toBe("<div>Preview</div>");
-
-      expect(fetchMock).toHaveBeenCalledWith(
-        "https://confluence.example.com/rest/api/contentbody/convert/view",
-        expect.objectContaining({
-          method: "POST",
-          credentials: "include",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ representation: "storage", value: "<p>Preview</p>" }),
-        }),
-      );
-    });
-
-    it("uploads an attachment with browser-managed multipart boundaries", async () => {
-      const attachment: ConfluenceAttachmentRaw = {
-        id: "att-1",
-        title: "guide.pdf",
-        extensions: { mediaType: "application/pdf", fileSize: 11 },
-      };
-      fetchMock.mockResolvedValueOnce(jsonResponse({ results: [attachment] }));
-      const api = new ConfluenceApi("https://confluence.example.com");
-      const file = new File(["hello"], "guide.pdf", { type: "application/pdf" });
-
-      await expect(api.uploadAttachment("123", file)).resolves.toEqual([attachment]);
-
-      expect(fetchMock).toHaveBeenCalledOnce();
-      const [, init] = fetchMock.mock.calls[0];
-      expect(fetchMock.mock.calls[0][0]).toBe(
-        "https://confluence.example.com/rest/api/content/123/child/attachment",
-      );
-      expect(init?.method).toBe("POST");
-      expect(init?.credentials).toBe("include");
-      expect(init?.headers).toEqual({
-        Accept: "application/json",
-        "X-Atlassian-Token": "nocheck",
-      });
-      expect(init?.body).toBeInstanceOf(FormData);
-      expect((init?.body as FormData).get("file")).toBe(file);
     });
   });
 });
@@ -692,7 +584,9 @@ describe("ConfluenceApi fetch policy", () => {
   it("retries on 429 and succeeds on a later 200 response", async () => {
     vi.useFakeTimers();
     fetchMock
-      .mockResolvedValueOnce(jsonResponse({ message: "limited" }, { status: 429, statusText: "Too Many Requests" }))
+      .mockResolvedValueOnce(
+        jsonResponse({ message: "limited" }, { status: 429, statusText: "Too Many Requests" }),
+      )
       .mockResolvedValueOnce(jsonResponse({ ok: true }));
     const api = new ConfluenceApi("https://confluence.example.com", { maxRetries: 1 });
 
@@ -706,7 +600,9 @@ describe("ConfluenceApi fetch policy", () => {
   it("retries on 503 with exponential backoff", async () => {
     vi.useFakeTimers();
     fetchMock
-      .mockResolvedValueOnce(jsonResponse({ message: "down" }, { status: 503, statusText: "Unavailable" }))
+      .mockResolvedValueOnce(
+        jsonResponse({ message: "down" }, { status: 503, statusText: "Unavailable" }),
+      )
       .mockResolvedValueOnce(jsonResponse({ ok: true }));
     const api = new ConfluenceApi("https://confluence.example.com", { maxRetries: 1 });
 
@@ -731,11 +627,13 @@ describe("ConfluenceApi fetch policy", () => {
     );
     const api = new ConfluenceApi("https://confluence.example.com", { timeout: 50, maxRetries: 0 });
 
-    const result = api.fetchJson("/rest/api/content/123");
-    const assertion = expect(result).rejects.toMatchObject({ name: "AbortError" });
+    const result = api.fetchJson("/rest/api/content/123").then(
+      () => undefined,
+      (error: unknown) => error,
+    );
     await vi.advanceTimersByTimeAsync(50);
 
-    await assertion;
+    expect(await result).toMatchObject({ name: "TimeoutError" });
   });
 
   it("respects rate limit reset headers when remaining quota is zero", async () => {
@@ -813,7 +711,9 @@ describe("ConfluenceApi fetch policy", () => {
   });
 
   it("does not retry permanent 404 and 403 errors", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ message: "missing" }, { status: 404, statusText: "Not Found" }));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ message: "missing" }, { status: 404, statusText: "Not Found" }),
+    );
     const api = new ConfluenceApi("https://confluence.example.com", { maxRetries: 3 });
 
     await expect(api.fetchJson("/rest/api/content/missing")).rejects.toThrow(
@@ -821,7 +721,9 @@ describe("ConfluenceApi fetch policy", () => {
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    fetchMock.mockResolvedValueOnce(jsonResponse({ message: "forbidden" }, { status: 403, statusText: "Forbidden" }));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ message: "forbidden" }, { status: 403, statusText: "Forbidden" }),
+    );
     await expect(api.fetchJson("/rest/api/content/forbidden")).rejects.toThrow(
       "Confluence API 403 Forbidden @ /rest/api/content/forbidden",
     );
@@ -829,7 +731,9 @@ describe("ConfluenceApi fetch policy", () => {
   });
 
   it("throws AuthError on 401", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ message: "unauthorized" }, { status: 401, statusText: "Unauthorized" }));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ message: "unauthorized" }, { status: 401, statusText: "Unauthorized" }),
+    );
     const api = new ConfluenceApi("https://confluence.example.com");
 
     await expect(api.fetchJson("/rest/api/content/secret")).rejects.toBeInstanceOf(AuthError);

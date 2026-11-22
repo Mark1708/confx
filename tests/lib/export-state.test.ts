@@ -1,199 +1,195 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
-import { deserializeJobState, loadLastJobState, saveJobState, serializeJobState } from "../../src/lib/export-state";
-import type { ConfluencePageMeta, ExportJobConfig, ExportJobState } from "../../src/types";
+import {
+  deserializeJobState,
+  loadLastJobState,
+  saveJobState,
+  serializeJobState,
+} from "@/lib/export-state";
+import type { ExportJobState } from "@/types";
 
-const originalChrome = globalThis.chrome;
+function state(id = "job-1"): ExportJobState {
+  return {
+    version: 2,
+    id,
+    sourceKey: "11:confluence:https://wiki.example.com/wiki",
+    owner: { instanceId: "surface-1", surface: "workspace", tabId: 31, windowId: 1 },
+    request: {
+      kind: "extract-subtree",
+      destination: "download-zip",
+      presetId: "md-only",
+      rootPageId: "100",
+      maxDepth: null,
+    },
+    status: "running",
+    phase: "reading",
+    message: "Reading Lorem",
+    cancelRequested: false,
+    counts: {
+      processed: 2,
+      total: 5,
+      successfulPages: 2,
+      failedPages: 0,
+      successfulResources: null,
+      failedResources: null,
+      entriesWritten: null,
+      bytesWritten: null,
+    },
+    startedAt: "2026-11-18T10:00:00.000Z",
+  };
+}
 
-const pageMeta: ConfluencePageMeta = {
-  id: "page-1",
-  title: "Page title",
-  spaceKey: "DOC",
-  baseUrl: "https://confluence.example.com",
-  url: "https://confluence.example.com/pages/page-1",
-};
+function legacy() {
+  return {
+    version: 1,
+    id: "legacy-1",
+    status: "running",
+    config: {
+      kind: "extract-block",
+      host: "https://wiki.example.com/wiki",
+      presetId: "generic",
+      html: "<main>PRIVATE BODY</main>",
+      pageMeta: { id: "100", title: "PRIVATE TITLE" },
+      jql: "PRIVATE QUERY",
+    },
+    progress: { current: 2, total: 5, message: "" },
+    processedPageIds: ["100", "101"],
+    resumeFromIndex: 1,
+    startedAt: "2026-11-18T09:00:00.000Z",
+  };
+}
 
-const configs: ExportJobConfig[] = [
-  {
-    kind: "extract-page",
-    host: "https://confluence.example.com",
-    presetId: "generic",
-    pageId: "123",
-  },
-  {
-    kind: "extract-subtree",
-    host: "https://confluence.example.com",
-    presetId: "generic",
-    rootPageId: "root-1",
-    maxDepth: 3,
-  },
-  {
-    kind: "extract-block",
-    host: "https://confluence.example.com",
-    presetId: "generic",
-    html: "<main>Content</main>",
-    pageMeta,
-  },
-  {
-    kind: "extract-space",
-    host: "https://confluence.example.com",
-    presetId: "generic",
-    spaceKey: "DOC",
-    spaceOptions: { label: "public", prefix: "Guide" },
-    maxDepth: 2,
-  },
-  {
-    kind: "extract-jira-issue",
-    host: "https://jira.example.com",
-    issueKey: "DOC-123",
-  },
-  {
-    kind: "extract-jira-search",
-    host: "https://jira.example.com",
-    jql: "project = DOC ORDER BY updated DESC",
-  },
-];
+let values: Record<string, unknown>;
+let set: Mock<(items: Record<string, unknown>) => Promise<void>>;
+let remove: Mock<(keys: string | string[]) => Promise<void>>;
 
-const state: ExportJobState = {
-  id: "job-1",
-  status: "running",
-  config: {
-    kind: "extract-subtree",
-    host: "https://confluence.example.com",
-    presetId: "generic",
-    rootPageId: "root-1",
-    maxDepth: 3,
-  },
-  progress: {
-    current: 2,
-    total: 5,
-    message: "Извлекаю страницу",
-  },
-  startedAt: "2026-05-27T12:00:00.000Z",
-  resumeFromIndex: 1,
-  processedPageIds: ["page-1", "page-2"],
-};
+beforeEach(() => {
+  values = {};
+  set = vi.fn(async (items: Record<string, unknown>) => {
+    Object.assign(values, items);
+  });
+  remove = vi.fn(async (keys: string | string[]) => {
+    for (const key of typeof keys === "string" ? [keys] : keys) delete values[key];
+  });
+  vi.stubGlobal("chrome", {
+    storage: {
+      session: {
+        get: async (keys: string | string[] | null) =>
+          keys === null
+            ? { ...values }
+            : Object.fromEntries(
+                (typeof keys === "string" ? [keys] : keys).map((key) => [key, values[key]]),
+              ),
+        set,
+        remove,
+      },
+    },
+  });
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
-describe("serialize/deserialize", () => {
-  it("roundtrip: serialize -> deserialize -> deep equal", () => {
-    const json = serializeJobState(state);
-
-    expect(deserializeJobState(json)).toEqual(state);
+describe("metadata-only export snapshots", () => {
+  it("whitelists every nested v2 object rather than persisting arbitrary caller data", () => {
+    const input = {
+      ...state(),
+      html: "PRIVATE BODY",
+      processedPageIds: ["100"],
+      resumeFromIndex: 1,
+      owner: { ...state().owner, headers: { Authorization: "PRIVATE HEADER" } },
+      request: {
+        ...state().request,
+        html: "PRIVATE BODY",
+        diff: { content: "PRIVATE DIFF" },
+        jql: "PRIVATE QUERY",
+        pageMeta: { title: "PRIVATE TITLE" },
+      },
+      counts: { ...state().counts, document: "PRIVATE DOCUMENT" },
+    };
+    const serialized = serializeJobState(input);
+    const restored = deserializeJobState(serialized);
+    expect(restored).toEqual(state());
+    expect(serialized).not.toMatch(/PRIVATE|processedPageIds|resumeFromIndex|headers|pageMeta|jql/);
+    expect(restored?.counts.entriesWritten).toBeNull();
+    expect(restored?.counts.bytesWritten).toBeNull();
   });
 
-  it("deserialize invalid JSON returns null", () => {
-    expect(deserializeJobState("{")).toBeNull();
-  });
-
-  it("deserialize missing version returns null", () => {
-    const json = JSON.stringify(state);
-
-    expect(deserializeJobState(json)).toBeNull();
-  });
-
-  it("deserialize with version=1 returns valid state", () => {
-    const json = JSON.stringify({ version: 1, ...state });
-
-    expect(deserializeJobState(json)).toEqual(state);
-  });
-
-  it.each(configs)("roundtrip preserves config for $kind", (config) => {
-    const jobState = makeState(`job-${config.kind}`, config);
-
-    const restored = deserializeJobState(serializeJobState(jobState));
-
-    expect(restored).toEqual(jobState);
-  });
-
-  it("deserialize rejects invalid spaceOptions", () => {
-    const json = JSON.stringify({
-      version: 1,
-      ...makeState("job-space", configs[3]),
-      config: {
-        ...configs[3],
-        spaceOptions: { label: 123 },
+  it("turns v1 into interrupted metadata without restoring HTML, query, or resume data", () => {
+    const restored = deserializeJobState(JSON.stringify(legacy()));
+    expect(restored).toMatchObject({
+      version: 2,
+      id: "legacy-1",
+      status: "interrupted",
+      owner: { surface: "unknown" },
+      phase: null,
+      request: { kind: "extract-block", destination: "download-zip" },
+      counts: {
+        processed: 2,
+        total: 5,
+        successfulPages: null,
+        failedPages: null,
+        successfulResources: null,
+        failedResources: null,
+        entriesWritten: null,
+        bytesWritten: null,
       },
     });
+    expect(JSON.stringify(restored)).not.toMatch(
+      /PRIVATE|processedPageIds|resumeFromIndex|pageMeta|jql|"html"/,
+    );
+  });
 
+  it.each([
+    "{",
+    JSON.stringify({ ...state(), version: 3 }),
+    JSON.stringify({ ...state(), counts: { ...state().counts, bytesWritten: -1 } }),
+  ])("rejects malformed or unsupported metadata: %s", (json) => {
     expect(deserializeJobState(json)).toBeNull();
   });
+
+  it("saves v2 state and its active pointer together without v1 payload fields", async () => {
+    const current = state();
+    await saveJobState(current);
+    expect(values["cx.export.active.v2"]).toBe(current.id);
+    expect(deserializeJobState(String(values[`cx.exportJob.v2:${current.id}`]))).toEqual(current);
+    expect(Object.keys(values).some((key) => key.startsWith("cx:exportJob:"))).toBe(false);
+  });
+
+  it("reads the active pointer rather than selecting an unrelated newest record", async () => {
+    values["cx.export.active.v2"] = "active";
+    values["cx.exportJob.v2:active"] = serializeJobState(state("active"));
+    values["cx.exportJob.v2:unrelated"] = serializeJobState({
+      ...state("unrelated"),
+      startedAt: "2026-11-18T23:00:00.000Z",
+    });
+    await expect(loadLastJobState()).resolves.toMatchObject({ id: "active" });
+  });
+
+  it("stores sanitized legacy metadata before deleting the old payload and leaves import journal untouched", async () => {
+    values["cx:exportJob:legacy-1"] = JSON.stringify(legacy());
+    values["cx.import.run.v1"] = { lastPublication: "user-owned" };
+    await expect(loadLastJobState()).resolves.toMatchObject({
+      id: "legacy-1",
+      status: "interrupted",
+    });
+    expect(values["cx:exportJob:legacy-1"]).toBeUndefined();
+    expect(values["cx.export.active.v2"]).toBe("legacy-1");
+    expect(String(values["cx.exportJob.v2:legacy-1"])).not.toContain("PRIVATE");
+    expect(values["cx.import.run.v1"]).toEqual({ lastPublication: "user-owned" });
+    expect(set.mock.invocationCallOrder[0]).toBeLessThan(remove.mock.invocationCallOrder[0]);
+  });
+
+  it("does not erase the only legacy record if sanitized persistence fails", async () => {
+    values["cx:exportJob:legacy-1"] = JSON.stringify(legacy());
+    set.mockRejectedValue(new Error("session quota"));
+    await expect(loadLastJobState()).rejects.toThrow("session quota");
+    expect(values["cx:exportJob:legacy-1"]).toBeDefined();
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("surfaces storage failure instead of reporting that a snapshot was saved", async () => {
+    set.mockRejectedValue(new Error("session quota"));
+    await expect(saveJobState(state())).rejects.toThrow("session quota");
+  });
 });
-
-describe("loadLastJobState", () => {
-  beforeEach(() => {
-    installChromeStorageMock();
-  });
-
-  afterEach(() => {
-    restoreChrome();
-  });
-
-  it("returns null when no export job state exists", async () => {
-    await chrome.storage.session.set({ "other:key": serializeJobState(makeState("ignored", configs[0])) });
-
-    await expect(loadLastJobState()).resolves.toBeNull();
-  });
-
-  it("returns the most recent saved export job state", async () => {
-    const older = makeState("older", configs[0], "2026-05-27T10:00:00.000Z");
-    const newer = makeState("newer", configs[5], "2026-05-27T11:00:00.000Z");
-
-    await saveJobState(older);
-    await saveJobState(newer);
-
-    await expect(loadLastJobState()).resolves.toEqual(newer);
-  });
-});
-
-function makeState(id: string, config: ExportJobConfig, startedAt = "2026-05-27T12:00:00.000Z"): ExportJobState {
-  return {
-    id,
-    status: "running",
-    config,
-    progress: {
-      current: 2,
-      total: 5,
-      message: "Извлекаю страницу",
-    },
-    startedAt,
-    resumeFromIndex: 1,
-    processedPageIds: ["page-1", "page-2"],
-  };
-}
-
-function installChromeStorageMock(): void {
-  let store: Record<string, unknown> = {};
-
-  const session = {
-    get: async (keys?: string | string[] | Record<string, unknown> | null): Promise<Record<string, unknown>> => {
-      if (keys === undefined || keys === null) return { ...store };
-      if (typeof keys === "string") return { [keys]: store[keys] };
-      if (Array.isArray(keys)) return Object.fromEntries(keys.map((key) => [key, store[key]]));
-      return { ...keys, ...store };
-    },
-    set: async (items: Record<string, unknown>): Promise<void> => {
-      store = { ...store, ...items };
-    },
-    remove: async (keys: string | string[]): Promise<void> => {
-      const keySet = new Set(Array.isArray(keys) ? keys : [keys]);
-      store = Object.fromEntries(Object.entries(store).filter(([key]) => !keySet.has(key)));
-    },
-  };
-
-  Object.defineProperty(globalThis, "chrome", {
-    configurable: true,
-    value: { storage: { session } },
-  });
-}
-
-function restoreChrome(): void {
-  if (originalChrome === undefined) {
-    Reflect.deleteProperty(globalThis, "chrome");
-    return;
-  }
-
-  Object.defineProperty(globalThis, "chrome", {
-    configurable: true,
-    value: originalChrome,
-  });
-}

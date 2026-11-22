@@ -95,4 +95,15 @@ describe("createDebouncedReconcile", () => {
     await vi.advanceTimersByTimeAsync(200);
     expect(reconcile).toHaveBeenCalledTimes(2);
   });
+
+  it("cancels pending reconciliation when its owner is torn down", async () => {
+    const reconcile = vi.fn().mockResolvedValue(undefined);
+    const debounced = createDebouncedReconcile(reconcile, 150);
+    debounced();
+    debounced();
+    debounced.cancel();
+    await vi.advanceTimersByTimeAsync(300);
+    debounced();
+    expect(reconcile).toHaveBeenCalledTimes(1);
+  });
 });

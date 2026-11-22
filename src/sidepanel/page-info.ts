@@ -1,4 +1,6 @@
-import { createConfluenceApi } from "@/lib/create-api";
+import { createConfluenceApi, toFetchOptions } from "@/lib/create-api";
+import { loadSettings } from "@/lib/settings";
+import { resolveSourceBase } from "@/lib/source-context";
 import type { ConfluencePageMeta } from "@/types";
 
 export interface PageInfo {
@@ -12,7 +14,9 @@ export async function fetchPageInfo(
   pageId: string,
   signal?: AbortSignal,
 ): Promise<PageInfo> {
-  const api = await createConfluenceApi(host);
+  const settings = await loadSettings();
+  const { baseUrl } = resolveSourceBase(host, host, settings.confluenceBaseUrl);
+  const api = createConfluenceApi(baseUrl, toFetchOptions(settings));
   const raw = await api.getPage(
     pageId,
     ["space", "version", "ancestors", "metadata.labels", "children.attachment"],
@@ -33,7 +37,9 @@ export async function fetchChildren(
   pageId: string,
   signal?: AbortSignal,
 ): Promise<Array<{ id: string; title: string; hasChildren: boolean }>> {
-  const api = await createConfluenceApi(host);
+  const settings = await loadSettings();
+  const { baseUrl } = resolveSourceBase(host, host, settings.confluenceBaseUrl);
+  const api = createConfluenceApi(baseUrl, toFetchOptions(settings));
   const children = await api.getChildren(pageId, 100, signal);
 
   return Promise.all(

@@ -16,7 +16,7 @@ const segmentControlVariants = cva(
 );
 
 const segmentControlItemVariants = cva(
-  "inline-flex min-w-0 items-center justify-center gap-0.5 overflow-hidden whitespace-nowrap rounded-md font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 panel:gap-1.5",
+  "inline-flex min-w-0 items-center justify-center gap-0.5 overflow-hidden whitespace-nowrap rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 panel:gap-1.5",
   {
     variants: {
       size: {
@@ -24,7 +24,7 @@ const segmentControlItemVariants = cva(
         sm: "px-1 py-1.5 text-[10px] panel:px-2 panel:text-[11px]",
       },
       active: {
-        true: "bg-primary text-primary-foreground shadow-[0_0_18px_hsl(var(--accent-glow))]",
+        true: "bg-primary text-primary-foreground",
         false: "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
       },
     },
@@ -38,6 +38,8 @@ export interface SegmentControlItem<TValue extends string> {
   icon?: React.ReactNode;
   badge?: React.ReactNode;
   disabled?: boolean;
+  /** Optional tooltip override; defaults to a plain-string label. */
+  title?: string;
 }
 
 export interface SegmentControlProps<TValue extends string>
@@ -61,6 +63,24 @@ export function SegmentControl<TValue extends string>({
   ...props
 }: SegmentControlProps<TValue>): React.ReactElement {
   const gridTemplateColumns = `repeat(${items.length}, minmax(0, 1fr))`;
+  const selectedIndex = items.findIndex((item) => item.value === value && !item.disabled);
+  const focusIndex = selectedIndex >= 0 ? selectedIndex : items.findIndex((item) => !item.disabled);
+  const moveFocus = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const direction = event.key === "ArrowLeft" || event.key === "End" ? -1 : 1;
+    let next = event.key === "Home" ? -1 : event.key === "End" ? items.length : index;
+    for (let count = 0; count < items.length; count += 1) {
+      next = (next + direction + items.length) % items.length;
+      if (!items[next].disabled) {
+        onValueChange(items[next].value);
+        (
+          event.currentTarget.parentElement?.children[next] as HTMLButtonElement | undefined
+        )?.focus();
+        break;
+      }
+    }
+  };
 
   return (
     <div
@@ -70,7 +90,7 @@ export function SegmentControl<TValue extends string>({
       style={{ ...style, gridTemplateColumns }}
       {...props}
     >
-      {items.map((item) => {
+      {items.map((item, index) => {
         const isActive = item.value === value;
 
         const labelTitle = typeof item.label === "string" ? item.label : undefined;
@@ -83,8 +103,10 @@ export function SegmentControl<TValue extends string>({
             type="button"
             role="tab"
             aria-selected={isActive}
-            title={labelTitle}
+            title={item.title ?? labelTitle}
             disabled={item.disabled}
+            tabIndex={index === focusIndex ? 0 : -1}
+            onKeyDown={(event) => moveFocus(event, index)}
             className={cn(segmentControlItemVariants({ size, active: isActive }))}
             onClick={() => onValueChange(item.value)}
           >

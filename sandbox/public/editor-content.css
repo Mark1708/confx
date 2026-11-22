@@ -1,0 +1,209 @@
+/* Shared specimen presentation; loaded locally in the real TinyMCE iframe. */
+.wiki-content {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.65;
+  color: #20272d;
+  overflow-wrap: anywhere;
+}
+body.native-content {
+  margin: 20px;
+  background: #fff;
+}
+.wiki-content h1,
+.wiki-content h2,
+.wiki-content h3,
+.wiki-content h4,
+.wiki-content h5,
+.wiki-content h6 {
+  line-height: 1.35;
+  margin: 1em 0 0.5em;
+  color: #20272d;
+}
+.wiki-content h1 {
+  font-size: 28px;
+}
+.wiki-content h2 {
+  font-size: 23px;
+}
+.wiki-content h3 {
+  font-size: 19px;
+}
+.wiki-content h4 {
+  font-size: 16px;
+}
+.wiki-content h5 {
+  font-size: 14px;
+}
+.wiki-content h6 {
+  font-size: 12px;
+}
+.wiki-content p {
+  margin: 0.6em 0;
+}
+.wiki-content a {
+  color: #175a7b;
+  text-underline-offset: 3px;
+}
+.wiki-content ul,
+.wiki-content ol {
+  padding-left: 28px;
+}
+.wiki-content blockquote {
+  border-left: 3px solid #b1c1cb;
+  padding: 4px 16px;
+  margin: 16px 0;
+  color: #52616c;
+}
+.wiki-content pre,
+.wiki-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+.wiki-content pre {
+  padding: 12px;
+  background: #f0f3f5;
+  border: 1px solid #d3d9de;
+  overflow: auto;
+  white-space: pre;
+  tab-size: 2;
+}
+.wiki-content :not(pre) > code {
+  padding: 2px 4px;
+  background: #f0f3f5;
+  border-radius: 2px;
+}
+.wiki-content table {
+  border-collapse: collapse;
+  max-width: 100%;
+  margin: 12px 0;
+}
+.wiki-content td,
+.wiki-content th {
+  border: 1px solid #b9c5cd;
+  padding: 8px 12px;
+  vertical-align: top;
+  min-width: 40px;
+}
+.wiki-content th {
+  background: #eaf0f3;
+  text-align: left;
+}
+.wiki-content img {
+  max-width: 100%;
+  height: auto;
+}
+.wiki-content figure {
+  margin: 16px 0;
+}
+.wiki-content figcaption {
+  font-size: 12px;
+  color: #52616c;
+}
+.wiki-content hr {
+  border: 0;
+  border-top: 1px solid #d3d9de;
+  margin: 20px 0;
+}
+.wiki-content .contentLayout2 {
+  margin: 12px 0;
+}
+.wiki-content .columnLayout {
+  display: flex;
+  gap: 16px;
+  margin: 12px 0;
+}
+.wiki-content .columnLayout > .cell {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.wiki-content .columnLayout[data-layout="two_left_sidebar"] > .cell:first-child,
+.wiki-content .columnLayout[data-layout="two_right_sidebar"] > .cell:last-child {
+  flex-grow: 0.5;
+}
+.wiki-content .columnLayout[data-layout="three_with_sidebars"] > .cell:nth-child(2) {
+  flex-grow: 2;
+}
+.native-content .innerCell {
+  border: 1px dashed #a8bac5;
+  padding: 12px;
+  min-height: 48px;
+}
+.wiki-content .sandbox-opaque {
+  display: block;
+  padding: 10px 12px;
+  margin: 8px 0;
+  border: 1px solid #b6c5cf;
+  border-left: 3px solid #657f90;
+  border-radius: 2px;
+  background: #edf2f5;
+  color: #344c59;
+  font:
+    12px/1.6 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  cursor: default;
+  overflow-wrap: anywhere;
+}
+.wiki-content span.sandbox-opaque {
+  display: inline-block;
+  padding: 2px 6px;
+  margin: 0 2px;
+}
+.wiki-content .confluence-information-macro,
+.wiki-content .macro-placeholder {
+  border: 1px solid #b6c5cf;
+  background: #f1f5f7;
+  padding: 12px 16px;
+  margin: 12px 0;
+}
+.wiki-content .confluence-information-macro-warning,
+.wiki-content .confluence-information-macro-note {
+  border-color: #c8b58a;
+  background: #fcf8ef;
+}
+.wiki-content .status-macro {
+  display: inline-block;
+  border: 1px solid #b6c5cf;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 650;
+}
+.wiki-content .task-list-item {
+  padding: 4px 0;
+}
+.wiki-content .task-list-item[data-status="checked"] {
+  color: #52616c;
+}
+.wiki-content .gallery-macro {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.wiki-content details {
+  border: 1px solid #d3d9de;
+  margin: 12px 0;
+  padding: 8px 12px;
+}
+.wiki-content summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.wiki-content :focus-visible {
+  outline: 3px solid #227aa5;
+  outline-offset: 2px;
+}
+@media (max-width: 640px) {
+  .wiki-content .columnLayout {
+    flex-direction: column;
+  }
+  .wiki-content table {
+    display: block;
+    overflow-x: auto;
+  }
+  body.native-content {
+    margin: 12px;
+  }
+}

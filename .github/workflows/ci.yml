@@ -1,12 +1,16 @@
 name: CI
 
 on:
+  workflow_call:
   push:
     branches:
       - main
   pull_request:
     branches:
       - main
+
+permissions:
+  contents: read
 
 jobs:
   check:
@@ -26,14 +30,39 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Check public fixtures
+        run: npm run check:privacy
+
       - name: Typecheck
         run: npm run typecheck
 
       - name: Test
         run: npm test
 
+      - name: Test sandbox contracts
+        run: npm run test:sandbox
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
       - name: Build Chrome artifact
         run: npm run build:chrome
+
+      - name: Install Chromium for the actual extension tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Test built Chrome extension against the sandbox
+        env:
+          SANDBOX_E2E_PORT: "4187"
+        run: npm run test:sandbox:e2e
+
+      - name: Build Yandex artifact
+        env:
+          YANDEX_EXTENSION_ID: cjhpodjghfokdfoljmfbgibjjfpafdip
+        run: npm run build:yandex
 
       - name: Package Chrome ZIP
         run: npm run zip:chrome

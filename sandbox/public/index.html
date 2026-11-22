@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'"
+    />
+    <!--sandbox:meta-->
+    <title>Lorem laboratory · Confx sandbox</title>
+    <link rel="icon" type="image/png" href="/download/attachments/1700/lorem.png" />
+    <link rel="stylesheet" href="/sandbox/styles.css" />
+    <link rel="stylesheet" href="/sandbox/editor-content.css" />
+    <script src="/vendor/tinymce/tinymce.min.js" defer></script>
+    <script src="/sandbox/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#workspace">Skip to workspace</a>
+    <header class="app-header">
+      <a class="brand" href="/">Lorem <span>laboratory</span></a>
+      <span class="environment-label">LOCAL SANDBOX · NO WORK DATA</span>
+      <button id="reset-sandbox" type="button">Reset sandbox</button>
+    </header>
+    <div class="app-layout">
+      <aside class="navigation" aria-label="Catalog navigation">
+        <a class="overview-link" href="/">Component index</a>
+        <h2>Page hierarchy</h2>
+        <nav id="page-tree" aria-label="Pages"><p>Loading catalog…</p></nav>
+        <p class="navigation-note">
+          Synthetic Lorem specimens. Confx performs the real export and import; this sandbox never
+          exports Markdown.
+        </p>
+      </aside>
+      <main id="workspace" tabindex="-1">
+        <div id="status" role="status" aria-live="polite">Loading sandbox…</div>
+        <section id="dashboard" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Catalog</p>
+              <h1>Component index</h1>
+            </div>
+            <span id="catalog-count" class="muted"></span>
+          </div>
+          <p>
+            Open a specimen to inspect its published source or edit a separate native working copy.
+            Draft saves do not publish. Protected regions retain their original Storage XML.
+          </p>
+          <div class="table-scroll">
+            <table class="catalog-table">
+              <thead>
+                <tr>
+                  <th scope="col">Page</th>
+                  <th scope="col">Components</th>
+                  <th scope="col">Published</th>
+                  <th scope="col">Draft</th>
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="component-index"></tbody>
+            </table>
+          </div>
+        </section>
+        <section id="page-workspace" hidden>
+          <div class="section-heading">
+            <div>
+              <p id="page-breadcrumb" class="eyebrow"></p>
+              <h1 id="page-title"></h1>
+            </div>
+            <nav class="route-actions" aria-label="Page mode">
+              <a id="view-page">View page</a><a id="edit-page">Edit page</a>
+            </nav>
+          </div>
+          <div class="revision-strip" aria-label="Independent content versions">
+            <div>
+              <span>Published</span
+              ><strong data-testid="published-version" id="published-version">—</strong>
+            </div>
+            <div>
+              <span>Saved draft</span
+              ><strong data-testid="draft-version" id="draft-version">—</strong>
+            </div>
+            <div>
+              <span>Native working copy</span
+              ><strong data-testid="native-state" id="native-state">Not open</strong>
+            </div>
+          </div>
+          <details class="expectations" open>
+            <summary>Edit boundaries &amp; components</summary>
+            <p id="page-components"></p>
+            <p>
+              The sandbox codec supports ordinary HTML, lists, tables, code and layouts. Confx
+              applies its own edit boundaries: standalone lists, merged tables and
+              macro/task/resource placeholders can remain protected. Preserve their metadata;
+              unsupported or unsafe conversions fail explicitly.
+            </p>
+            <ul id="page-expectations"></ul>
+          </details>
+          <section id="editor-panel" aria-labelledby="editor-heading" hidden>
+            <div class="section-heading compact">
+              <h2 id="editor-heading">Native editor</h2>
+              <span id="editor-base" class="muted"></span>
+            </div>
+            <p class="help">
+              Explicit saves only. Confx applies to this working copy, never directly to Published.
+              Use the editor’s Undo to revert native edits or a Confx apply.
+            </p>
+            <label class="visually-hidden" for="wysiwygTextarea">Page content</label
+            ><textarea id="wysiwygTextarea"></textarea>
+            <div class="editor-actions">
+              <button id="save-draft" type="button" disabled>Save draft</button
+              ><button id="discard-draft" type="button" disabled>Discard draft</button
+              ><button id="publish-page" class="primary" type="button" disabled>Publish</button
+              ><span class="help">Publish uses the working copy’s base revision.</span>
+            </div>
+          </section>
+          <section class="published-panel" aria-labelledby="published-heading">
+            <div class="section-heading compact">
+              <h2 id="published-heading">Published page</h2>
+              <span class="muted">Independent of native edits and draft saves</span>
+            </div>
+            <article
+              id="main-content"
+              class="wiki-content"
+              aria-label="Published content"
+            ></article>
+          </section>
+          <section class="scenario-panel" aria-labelledby="scenario-heading">
+            <h2 id="scenario-heading">Conflict scenarios</h2>
+            <div class="scenario-controls">
+              <label for="scenario">Scenario</label
+              ><select id="scenario"></select
+              ><button id="apply-scenario" type="button">Apply scenario</button>
+            </div>
+            <p class="help">
+              Changes server state without replacing your native working copy. “Normal” clears the
+              scenario flag; only Reset restores the catalog.
+            </p>
+          </section>
+        </section>
+        <section id="inspector" class="inspector" aria-labelledby="inspector-heading">
+          <div class="section-heading compact">
+            <h2 id="inspector-heading">Source &amp; requests</h2>
+            <button id="refresh-snapshot" type="button">Refresh snapshot</button>
+          </div>
+          <div class="inspector-controls">
+            <label for="snapshot-kind">Snapshot</label
+            ><select id="snapshot-kind">
+              <option value="published-storage">Published · Storage XML</option>
+              <option value="published-view">Published · view HTML</option>
+              <option value="published-editor">Published · editor HTML</option>
+              <option value="draft-storage">Saved draft · Storage XML</option>
+              <option value="draft-editor">Saved draft · editor HTML</option>
+              <option value="native-editor">Native working copy · editor HTML</option>
+            </select>
+          </div>
+          <p id="snapshot-caption" class="help"></p>
+          <pre id="snapshot-source" tabindex="0" aria-label="Snapshot source"></pre>
+          <details id="request-details" open>
+            <summary>HTTP request log <span id="request-count"></span></summary>
+            <p class="help">
+              Server-observed requests, including Confx conversions and writes. Refresh to inspect
+              extension traffic. Clipped bodies are explicitly marked.
+            </p>
+            <div id="request-log" aria-label="HTTP request log"></div>
+          </details>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

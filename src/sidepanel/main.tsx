@@ -1,9 +1,11 @@
+import "../lib/appearance.css";
 import "./styles.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import { setupStorageSync } from "./storage-sync";
+import { WorkspaceProvider } from "./workspace/WorkspaceProvider";
 
 const qc = new QueryClient({
   defaultOptions: {
@@ -26,7 +28,9 @@ if (!rootElement) {
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <QueryClientProvider client={qc}>
-      <App />
+      <WorkspaceProvider>
+        <App />
+      </WorkspaceProvider>
     </QueryClientProvider>
   </React.StrictMode>,
 );

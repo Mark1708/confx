@@ -1,78 +1,57 @@
-import { Download, Search } from "lucide-react";
-import { useState } from "react";
 import type { CurrentTabInfo } from "../hooks/useCurrentTab";
 import { useExtractJob } from "../hooks/useExtractJob";
 import { useI18n } from "../hooks/useI18n";
-import { Button } from "../ui/button";
+import { TabAccessNotice } from "./TabAccessNotice";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Input } from "../ui/input";
-import { JobStatus } from "./JobStatus";
+import { Label } from "../ui/label";
+import { useWorkspace } from "../workspace/WorkspaceProvider";
 
 export function JiraPanel({ tab }: { tab: CurrentTabInfo }) {
-  const { state, run, cancel } = useExtractJob();
+  const { draft, patchDraft } = useWorkspace();
+  const { draftLocked } = useExtractJob();
   const { t } = useI18n();
-  const [jqlValue, setJqlValue] = useState("");
-
-  const isRunning = state?.status === "running";
-  const canExtractIssue = Boolean(tab.isJira && tab.issueKey && tab.host && !isRunning);
-  const jql = jqlValue.trim();
-  const canExtractSearch = Boolean(jql && tab.host && !isRunning);
-
-  const handleExtractIssue = () => {
-    if (!tab.issueKey || !tab.host) return;
-    run({ kind: "extract-jira-issue", issueKey: tab.issueKey, host: tab.host });
-  };
-
-  const handleExtractSearch = () => {
-    if (!jql || !tab.host) return;
-    run({ kind: "extract-jira-search", jql, host: tab.host });
-  };
+  const searchScope = draft.scope === "search";
 
   return (
     <div className="min-w-0 space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">{t("jira.title")}</h2>
-      </div>
+      <h2 className="text-sm font-semibold">
+        {t(searchScope ? "jira.searchTitle" : "jira.title")}
+      </h2>
+      <TabAccessNotice
+        accessState={tab.accessState}
+        accessOrigin={tab.accessOrigin}
+        grantStatus={tab.grantStatus}
+        onGrantAccess={tab.grantAccess}
+        onRetry={tab.retry}
+      />
+      <p className="text-xs text-muted-foreground">{t("composer.jiraLimit")}</p>
 
-      {tab.isJira && tab.issueKey ? (
-        <>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium">{t("jira.currentIssue")}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="min-w-0 space-y-1 text-sm">
-                <div className="break-all font-mono font-medium">{tab.issueKey}</div>
-                {tab.host && (
-                  <div className="break-all text-xs text-muted-foreground">{tab.host}</div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
+      {searchScope ? (
+        <div className="space-y-1">
+          <Label htmlFor="jira-jql">{t("jira.jql")}</Label>
           <Input
-            value={jqlValue}
-            onChange={(event) => setJqlValue(event.target.value)}
+            id="jira-jql"
+            value={draft.jira.jql}
+            disabled={draftLocked}
+            onChange={(event) => patchDraft({ jira: { ...draft.jira, jql: event.target.value } })}
             placeholder={t("jira.jqlPlaceholder")}
           />
-
-          <Button className="w-full" disabled={!canExtractIssue} onClick={handleExtractIssue}>
-            <Download className="h-4 w-4" />
-            {t("jira.extractIssue")}
-          </Button>
-
-          {jql && (
-            <Button
-              variant="outline"
-              className="w-full"
-              disabled={!canExtractSearch}
-              onClick={handleExtractSearch}
-            >
-              <Search className="h-4 w-4" />
-              {t("jira.extractJql")}
-            </Button>
-          )}
-        </>
+        </div>
+      ) : tab.isJira && tab.issueKey ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium">{t("jira.currentIssue")}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="min-w-0 space-y-1 text-sm">
+              <div className="break-all font-mono font-medium">{tab.issueKey}</div>
+              {tab.host && (
+                <div className="break-all text-xs text-muted-foreground">{tab.host}</div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       ) : (
         <Card>
           <CardContent className="p-3 text-xs text-muted-foreground">
@@ -80,8 +59,6 @@ export function JiraPanel({ tab }: { tab: CurrentTabInfo }) {
           </CardContent>
         </Card>
       )}
-
-      <JobStatus state={state} onCancel={cancel} />
     </div>
   );
 }

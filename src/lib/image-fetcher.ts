@@ -1,5 +1,7 @@
-import type { ExtractedImage } from "@/types";
+import { ApiError, type ExportFailure, type ExtractedImage } from "@/types";
 import type { ConfluenceApi } from "./confluence-api";
+import { AssetRegistry, type PageAssetRegistry } from "./export/asset-registry";
+import { isAbortError } from "./http-client";
 import { slugify } from "./table-to-csv";
 
 async function sha256Hex(buf: ArrayBuffer): Promise<string> {
@@ -27,72 +29,79 @@ export function guessExt(mediaType: string | undefined, fallbackUrl: string): st
   return m ? m[1].toLowerCase() : "bin";
 }
 
-export class ImageDedup {
-  private byHash = new Map<string, string>();
-
-  register(hash: string, zipPath: string): string {
-    const existing = this.byHash.get(hash);
-    if (existing) return existing;
-    this.byHash.set(hash, zipPath);
-    return zipPath;
-  }
-}
-
 export async function fetchImagesFromHtml(
   html: string,
   api: ConfluenceApi,
   folder: string,
-  dedup?: ImageDedup,
+  assets?: PageAssetRegistry,
   signal?: AbortSignal,
-): Promise<{ images: ExtractedImage[]; srcToZip: Map<string, string> }> {
+  pageId?: string,
+): Promise<{
+  images: ExtractedImage[];
+  srcToArchive: Map<string, string>;
+  failures: ExportFailure[];
+}> {
+  signal?.throwIfAborted();
+  const reservations = assets ?? new AssetRegistry(false).beginPage("");
   const doc = new DOMParser().parseFromString(html, "text/html");
   const imgs = Array.from(doc.querySelectorAll("img")) as HTMLImageElement[];
   const images: ExtractedImage[] = [];
-  const srcToZip = new Map<string, string>();
+  const srcToArchive = new Map<string, string>();
+  const failures: ExportFailure[] = [];
   const seen = new Set<string>();
 
   for (const img of imgs) {
-    if (signal?.aborted) break;
-
-    const origSrc = img.getAttribute("data-image-src") || img.getAttribute("src") || "";
+    signal?.throwIfAborted();
+    const origSrc = extractImageUrl(img);
     if (!origSrc || seen.has(origSrc)) continue;
     seen.add(origSrc);
+    // Inline data is already self-contained, not a physical archive entry.
+    if (/^data:/i.test(origSrc)) continue;
 
-    // Skip data URIs — they already are inline
-    if (origSrc.startsWith("data:")) {
-      srcToZip.set(origSrc, origSrc);
+    let blob: Blob;
+    let hash: string;
+    try {
+      blob = await api.fetchBlob(origSrc, signal);
+      signal?.throwIfAborted();
+      const buf = await blob.arrayBuffer();
+      signal?.throwIfAborted();
+      hash = await sha256Hex(buf);
+      signal?.throwIfAborted();
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (isAbortError(error)) throw error;
+      failures.push({
+        scope: "attachment",
+        ...(pageId === undefined ? {} : { page_id: pageId }),
+        href: origSrc,
+        reason: "fetch-failed",
+        ...(error instanceof ApiError ? { status: error.status } : {}),
+      });
+      // Signed URLs and page-owned names stay in the package manifest, never in copied console logs.
+      console.warn("Image fetch failed", {
+        reason: "fetch-failed",
+        ...(error instanceof ApiError ? { status: error.status } : {}),
+      });
       continue;
     }
 
-    try {
-      const blob = await api.fetchBlob(origSrc, signal);
-      const buf = await blob.arrayBuffer();
-      const hash = await sha256Hex(buf);
-
-      const alias =
-        img.getAttribute("data-linked-resource-default-alias") ||
-        extractFilenameFromPath(origSrc) ||
-        "image";
-      const ext = guessExt(blob.type, alias);
-      const base = slugify(stripExt(alias)) || `img-${hash.slice(0, 8)}`;
-      const zipPath = `${folder}/${base}.${ext}`;
-
-      if (dedup) {
-        const reused = dedup.register(hash, zipPath);
-        if (reused !== zipPath) {
-          srcToZip.set(origSrc, reused);
-          continue;
-        }
-      }
-
-      images.push({ sourceUrl: origSrc, zipPath, blob, hash });
-      srcToZip.set(origSrc, zipPath);
-    } catch (e) {
-      console.warn("Image fetch failed:", origSrc, e);
-    }
+    const alias =
+      img.getAttribute("data-linked-resource-default-alias") ||
+      extractFilenameFromPath(origSrc) ||
+      "image";
+    const ext = guessExt(blob.type, alias);
+    const base = slugify(stripExt(alias)) || `img-${hash.slice(0, 8)}`;
+    const { archivePath, isNew } = reservations.reserve(
+      hash,
+      ext,
+      `${folder ? `${folder}/` : ""}${base}.${ext}`,
+    );
+    if (isNew) images.push({ sourceUrl: origSrc, archivePath, blob, hash });
+    srcToArchive.set(origSrc, archivePath);
   }
 
-  return { images, srcToZip };
+  signal?.throwIfAborted();
+  return { images, srcToArchive, failures };
 }
 
 function stripExt(s: string): string {

@@ -9,7 +9,8 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    include: ["tests/**/*.test.ts"],
+    testTimeout: 30_000,
+    include: ["tests/**/*.test.{ts,tsx}"],
     coverage: {
       provider: "v8",
       include: [

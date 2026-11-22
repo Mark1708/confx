@@ -1,157 +1,218 @@
 import { BrowserApi, hasSidePanel, MessageBus, storage } from "@/lib/browser";
-import type { OpenMdViewerRequest } from "@/types";
+import {
+  ensureTrustedSession,
+  storeSourceIntent,
+  type SourceIntentRecord,
+} from "@/lib/browser/source-intents";
+import type { UpdateLauncherStateResponse } from "@/types";
+import { handleLauncherStateUpdate } from "./launcher-state";
+import { startToolbarIcon } from "./toolbar-icon";
 
-/**
- * Service worker в MV3 не имеет DOM API (нет DOMParser, document и т.д.),
- * поэтому весь extraction pipeline выполняется в sidepanel.
- * SW здесь нужен только для настройки поведения side panel и проксирования
- * сообщений от контент-скрипта (например, "открыть MD-просмотрщик").
- *
- * Chrome toolbar action opens the side panel via openPanelOnActionClick.
- * Yandex toolbar action uses manifest default_popup. Content-initiated opens
- * try chrome.action.openPopup() first and fall back to sidePanel or a detached
- * popup window when the native popup API is unavailable.
- */
+const SIDEPANEL_PATH = "sidepanel/index.html";
+const FALLBACK_PREFIX = "cx.fallbackWindow.v2:";
+const fallbackOpenings = new Map<number, Promise<void>>();
 
-const SIDEPANEL_URL = "sidepanel/index.html";
-const FALLBACK_WINDOW_ID_KEY = "cx:fallbackWindowId";
-const PICKER_RESULT_KEY = "cx:pickerResult";
-const OPEN_CONFX_INTENT_KEY = "cx:openConfxIntent";
+type IntentSource = SourceIntentRecord["source"];
 
 function validateEnvironment(): boolean {
-  if (!chrome.runtime?.id) {
-    console.error("[cx] missing chrome.runtime.id");
+  if (!chrome.runtime?.id || !chrome.storage?.session || !chrome.tabs) {
+    console.error("[cx] Required extension APIs are unavailable");
     return false;
   }
-
-  if (!chrome.storage?.session) {
-    console.error("[cx] missing chrome.storage.session");
-    return false;
-  }
-
-  if (!chrome.tabs) {
-    console.error("[cx] missing chrome.tabs");
-    return false;
-  }
-
   return true;
 }
 
-if (validateEnvironment()) {
-  if (hasSidePanel()) {
-    BrowserApi.onInstalled(() => {
-      BrowserApi.setPanelBehavior({ openPanelOnActionClick: true }).catch((e) =>
-        console.error("sidePanel init error:", e),
-      );
-    });
-
-    BrowserApi.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+function sourceFromTab(tab: chrome.tabs.Tab): IntentSource {
+  const url = new URL(tab.pendingUrl ?? tab.url ?? "");
+  if (
+    typeof tab.id !== "number" ||
+    !Number.isSafeInteger(tab.id) ||
+    tab.id <= 0 ||
+    !Number.isSafeInteger(tab.windowId) ||
+    tab.windowId < 0 ||
+    (url.protocol !== "https:" && url.protocol !== "http:") ||
+    url.username ||
+    url.password
+  ) {
+    throw new Error("A source must be an existing HTTP(S) tab");
   }
+  return { tabId: tab.id, windowId: tab.windowId, url: url.href, origin: url.origin };
+}
 
-  // Allow popup/sidepanel to read chrome.storage.session
-  chrome.storage.session
-    .setAccessLevel({ accessLevel: "TRUSTED_AND_UNTRUSTED_CONTEXTS" })
-    .catch(() => {});
+function isPinnedFallback(url: string | undefined, tabId: number): boolean {
+  try {
+    const actual = new URL(url ?? "");
+    const expected = new URL(BrowserApi.getURL(SIDEPANEL_PATH));
+    return (
+      actual.protocol === expected.protocol &&
+      actual.host === expected.host &&
+      actual.pathname === expected.pathname &&
+      actual.searchParams.getAll("sourceTabId").length === 1 &&
+      actual.searchParams.get("sourceTabId") === String(tabId)
+    );
+  } catch {
+    return false;
+  }
+}
 
-  BrowserApi.onActionClicked(() => {
-    openFallbackWindow();
+async function createOrFocusFallback(source: IntentSource): Promise<void> {
+  const key = `${FALLBACK_PREFIX}${source.tabId}`;
+  const existingId = (await storage.session.get(key))[key];
+  if (typeof existingId === "number" && Number.isSafeInteger(existingId) && existingId >= 0) {
+    try {
+      const window = await BrowserApi.getWindow(existingId);
+      const tabs = await BrowserApi.queryTabs({ windowId: existingId });
+      if (
+        window.type === "popup" &&
+        tabs.some((tab) => isPinnedFallback(tab.pendingUrl ?? tab.url, source.tabId))
+      ) {
+        await BrowserApi.updateWindow(existingId, { focused: true });
+        return;
+      }
+    } catch {
+      // A stale window id is harmless; never navigate or repurpose a different surviving UI.
+    }
+  }
+  const params = new URLSearchParams({ sourceTabId: String(source.tabId) });
+  const created = await BrowserApi.createWindow({
+    url: BrowserApi.getURL(`${SIDEPANEL_PATH}?${params}`),
+    type: "popup",
+    width: 600,
+    height: 600,
   });
+  if (typeof created.id !== "number") throw new Error("The source workspace did not open");
+  await storage.session.set({ [key]: created.id });
+}
 
-  async function openFallbackWindow(): Promise<void> {
-    const url = BrowserApi.getURL(SIDEPANEL_URL);
-    const stored = await storage.session.get(FALLBACK_WINDOW_ID_KEY);
-    const existingId = stored[FALLBACK_WINDOW_ID_KEY] as number | undefined;
+function openFallback(source: IntentSource): Promise<void> {
+  const pending = fallbackOpenings.get(source.tabId);
+  if (pending) return pending;
+  const opening = createOrFocusFallback(source);
+  fallbackOpenings.set(source.tabId, opening);
+  const cleanup = () => {
+    if (fallbackOpenings.get(source.tabId) === opening) fallbackOpenings.delete(source.tabId);
+  };
+  void opening.then(cleanup, cleanup);
+  return opening;
+}
 
-    if (typeof existingId === "number") {
+async function openForSource(source: IntentSource): Promise<void> {
+  const actual = sourceFromTab(await BrowserApi.getTab(source.tabId));
+  const [active] = await BrowserApi.queryTabs({ active: true, windowId: actual.windowId });
+  const originalUrl = new URL(source.url);
+  const currentUrl = new URL(actual.url);
+  const sameDocument =
+    originalUrl.origin === currentUrl.origin &&
+    originalUrl.pathname === currentUrl.pathname &&
+    originalUrl.search === currentUrl.search;
+  if (active?.id === source.tabId && sameDocument) {
+    if (BrowserApi.getManifest().action?.default_popup) {
       try {
-        const win = await BrowserApi.getWindow(existingId);
-        if (win) {
-          await BrowserApi.updateWindow(existingId, { focused: true });
-          return;
-        }
+        await BrowserApi.openActionPopup({ windowId: actual.windowId });
+        return;
       } catch {
-        // окно закрыто — создадим новое
+        // Browsers without a usable native popup still get an explicitly pinned fallback.
       }
     }
+    if (hasSidePanel()) {
+      try {
+        await BrowserApi.openSidePanel({ windowId: actual.windowId });
+        return;
+      } catch {
+        // Never open another window's active tab as the source when native panel opening fails.
+      }
+    }
+  }
+  await openFallback(actual);
+}
 
-    const created = await BrowserApi.createWindow({
-      url,
-      type: "popup",
-      width: 600,
-      height: 600,
+function assertTrustedUi(sender: chrome.runtime.MessageSender): void {
+  const url = new URL(sender.url ?? "");
+  const extension = new URL(BrowserApi.getURL(""));
+  if (
+    sender.id !== extension.host ||
+    url.protocol !== extension.protocol ||
+    url.host !== extension.host ||
+    (sender.frameId !== undefined && sender.frameId !== 0)
+  ) {
+    throw new Error("Only a trusted extension UI may open a workspace");
+  }
+}
+
+if (validateEnvironment()) {
+  startToolbarIcon();
+  // Session handoffs remain trusted-only; launcher preferences stay local to this device.
+  const trustedSession = ensureTrustedSession();
+  void trustedSession.catch(() => {
+    console.error("[cx] Cannot restore trusted-only session access");
+  });
+
+  if (hasSidePanel()) {
+    BrowserApi.onInstalled(() => {
+      BrowserApi.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {
+        console.error("[cx] Cannot initialize the native side panel");
+      });
     });
-
-    if (typeof created.id === "number") {
-      await storage.session.set({ [FALLBACK_WINDOW_ID_KEY]: created.id });
-    }
+    BrowserApi.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {
+      console.error("[cx] Cannot initialize the native side panel");
+    });
+  } else {
+    BrowserApi.onActionClicked(async (tab) => {
+      try {
+        await trustedSession;
+        await openFallback(sourceFromTab(tab));
+      } catch {
+        console.error("[cx] Cannot open a workspace for this source tab");
+      }
+    });
   }
 
-  async function openSidePanelOrFallback(sender: chrome.runtime.MessageSender): Promise<void> {
-    if (!hasSidePanel()) {
-      await openFallbackWindow();
-      return;
-    }
-
-    const windowId = sender.tab?.windowId ?? (await BrowserApi.getCurrentWindow()).id;
-    if (typeof windowId !== "number") {
-      throw new Error("Cannot determine current window");
-    }
-
-    await BrowserApi.openSidePanel({ windowId });
-  }
-
-  BrowserApi.onWindowRemoved(async (removedId) => {
-    const stored = await storage.session.get(FALLBACK_WINDOW_ID_KEY);
-    if (stored[FALLBACK_WINDOW_ID_KEY] === removedId) {
-      await storage.session.remove(FALLBACK_WINDOW_ID_KEY);
-    }
-  });
-
-  MessageBus.on("open-jira-export", async (_msg, sender) => {
-    await openSidePanelOrFallback(sender);
+  MessageBus.on("open-confx", async (message, sender) => {
+    await trustedSession;
+    const record = await storeSourceIntent(message, sender);
+    await openForSource(record.source);
     return { ok: true };
   });
 
-  async function openNativePopupOrFallback(sender: chrome.runtime.MessageSender): Promise<void> {
-    try {
-      await BrowserApi.openActionPopup();
-      return;
-    } catch (error) {
-      console.warn(
-        "[cx] native action popup is unavailable; falling back to sidePanel or detached popup window",
-        error,
-      );
-    }
-
-    await openSidePanelOrFallback(sender);
-  }
-
-  MessageBus.on("open-confx", async (msg, sender) => {
-    await storage.session.set({ [OPEN_CONFX_INTENT_KEY]: msg });
-    await openNativePopupOrFallback(sender);
+  MessageBus.on("picker-result", async (message, sender) => {
+    await trustedSession;
+    const record = await storeSourceIntent(message, sender);
+    await openForSource(record.source);
     return { ok: true };
   });
 
-  MessageBus.on<OpenMdViewerRequest["kind"]>("open-md-viewer", (msg, sender) => {
-    const typed = msg as OpenMdViewerRequest;
+  MessageBus.on(
+    "update-launcher-state",
+    async (message, sender): Promise<UpdateLauncherStateResponse> => ({
+      ok: true,
+      state: await handleLauncherStateUpdate(message, sender),
+    }),
+  );
+
+  MessageBus.on("open-workspace", async (message, sender) => {
+    assertTrustedUi(sender);
+    if (
+      !Number.isSafeInteger(message.sourceTabId) ||
+      message.sourceTabId <= 0 ||
+      (message.tool !== "export" && message.tool !== "edit")
+    ) {
+      throw new Error("Invalid workspace source or tool");
+    }
+    await trustedSession;
+    const tab = await BrowserApi.getTab(message.sourceTabId);
+    const source = sourceFromTab(tab);
+    if (source.tabId !== message.sourceTabId) throw new Error("The source tab is unavailable");
     const params = new URLSearchParams({
-      host: typed.host,
-      pageId: typed.pageId,
+      surface: "workspace",
+      sourceTabId: String(source.tabId),
+      tool: message.tool,
     });
-    if (typed.title) params.set("title", typed.title);
-
-    const viewerUrl = BrowserApi.getURL(`viewer/index.html?${params.toString()}`);
-
-    return BrowserApi.createTab({
-      url: viewerUrl,
-      openerTabId: sender.tab?.id,
+    const created = await BrowserApi.createTab({
+      windowId: source.windowId,
+      openerTabId: source.tabId,
+      url: BrowserApi.getURL(`${SIDEPANEL_PATH}?${params}`),
       active: true,
-    }).then((tab) => ({ ok: true, tabId: tab.id }));
-  });
-
-  MessageBus.on("picker-result", async (msg, sender) => {
-    await storage.session.set({ [PICKER_RESULT_KEY]: msg });
-    await openNativePopupOrFallback(sender);
-    return { ok: true };
+    });
+    return { ok: true, tabId: created.id };
   });
 }

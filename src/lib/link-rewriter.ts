@@ -6,64 +6,66 @@
 export interface LinkRewriterContext {
   host: string;
   /** Map pageId → folder path inside the ZIP, e.g. "components/menu" */
-  pageIdToFolder: Map<string, string>;
+  pageIdToFolder?: ReadonlyMap<string, string>;
   /** Current page's folder path in the ZIP */
   currentFolder: string;
-  /** Map of attachment download paths to zip paths */
-  attachmentLinks?: Map<string, string>;
+  /** Exact resource URLs to package-content-root-relative paths of archived files. */
+  attachmentLinks?: ReadonlyMap<string, string>;
 }
 
 export function makeLinkRewriter(ctx: LinkRewriterContext): (href: string, text: string) => string {
+  const base = `${ctx.host.replace(/\/+$/, "")}/`;
+  const origin = new URL(base).origin;
+  const attachments = new Map<string, string | null>();
+  for (const [href, archivePath] of ctx.attachmentLinks ?? []) {
+    const key = resourceKey(href, base);
+    if (key === undefined) continue;
+    const previous = attachments.get(key);
+    attachments.set(key, previous === undefined || previous === archivePath ? archivePath : null);
+  }
   return (href: string): string => {
     if (!href) return href;
     if (href.startsWith("#")) return href; // anchor on same page
-    if (href.startsWith("mailto:") || href.startsWith("tel:")) return href;
+    if (/^(?:mailto:|tel:|data:)/i.test(href)) return href;
 
     let url: URL;
     try {
-      url = new URL(href, ctx.host);
+      url = new URL(href, base);
     } catch {
       return href;
     }
 
-    const sameHost = url.origin === new URL(ctx.host).origin;
-    if (!sameHost) return href;
+    if (url.origin !== origin || url.username || url.password) return href;
 
     const pageId = url.searchParams.get("pageId");
-    const target = pageId ? ctx.pageIdToFolder.get(pageId) : undefined;
-    if (target) {
-      const rel = relativePath(ctx.currentFolder, `${target}/index.md`);
+    const target = pageId ? ctx.pageIdToFolder?.get(pageId) : undefined;
+    if (target !== undefined) {
+      const rel = relativePath(ctx.currentFolder, `${target ? `${target}/` : ""}index.md`);
       return `${rel}${url.hash || ""}`;
     }
 
-    const attachmentPath = findAttachmentPath(href, url, ctx.attachmentLinks);
-    if (attachmentPath) return relativePath(ctx.currentFolder, attachmentPath);
+    const key = resourceKey(url.href, base);
+    const attachmentPath = key === undefined ? undefined : attachments.get(key);
+    if (attachmentPath) return `${relativePath(ctx.currentFolder, attachmentPath)}${url.hash}`;
 
-    return href; // kept absolute if not in export set
+    return url.href;
   };
 }
 
-function findAttachmentPath(
-  href: string,
-  url: URL,
-  attachmentLinks?: Map<string, string>,
-): string | undefined {
-  if (!attachmentLinks) return undefined;
-
-  const pathWithoutParams = url.pathname + url.search;
-  for (const [downloadPath, zipPath] of attachmentLinks) {
-    if (href.includes(downloadPath) || pathWithoutParams.includes(downloadPath)) return zipPath;
+function resourceKey(href: string, base: string): string | undefined {
+  try {
+    const url = new URL(href, base);
+    if (!/^https?:$/.test(url.protocol) || url.username || url.password) return undefined;
+    const path = url.pathname
+      .split("/")
+      .map((segment) => encodeURIComponent(decodeURIComponent(segment).normalize("NFC")))
+      .join("/");
+    const parameters = new URLSearchParams(url.search);
+    parameters.sort();
+    return `${url.origin}${path}${parameters.size ? `?${parameters}` : ""}`;
+  } catch {
+    return undefined;
   }
-
-  const attachMatch = url.pathname.match(/\/download\/attachments\/\d+\/(.+)$/);
-  if (!attachMatch) return undefined;
-
-  const fileName = decodeURIComponent(attachMatch[1]);
-  for (const [downloadPath, zipPath] of attachmentLinks) {
-    if (downloadPath.includes(fileName)) return zipPath;
-  }
-
-  return undefined;
 }
 
 export function relativePath(from: string, to: string): string {

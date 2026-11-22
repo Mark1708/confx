@@ -1,3 +1,4 @@
+import "../lib/appearance.css";
 import "../sidepanel/styles.css";
 import "./viewer.css";
 import React from "react";

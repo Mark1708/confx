@@ -1,4 +1,8 @@
-import type { ConfluenceApi, ConfluencePageRaw } from "./confluence-api";
+import {
+  collectConfluencePages,
+  type ConfluenceApi,
+  type ConfluencePageRaw,
+} from "./confluence-api";
 import type { PageSnapshot, PageSnapshotEntry } from "./subscriptions";
 
 export interface SnapshotProgress {
@@ -73,16 +77,9 @@ async function fetchChildrenWithVersion(
   pageId: string,
   limit = 100,
 ): Promise<ConfluencePageRaw[]> {
-  const all: ConfluencePageRaw[] = [];
-  let start = 0;
-  while (true) {
-    const res = await api.fetchJson<{ results: ConfluencePageRaw[]; size: number }>(
+  return collectConfluencePages((start) =>
+    api.fetchJson<{ results: ConfluencePageRaw[]; start?: number }>(
       `/rest/api/content/${pageId}/child/page?limit=${limit}&start=${start}&expand=${VERSION_EXPAND}`,
-    );
-    all.push(...res.results);
-    if (!res.results.length || res.results.length < limit) break;
-    start += res.results.length;
-    if (start > 5000) break;
-  }
-  return all;
+    ),
+  );
 }

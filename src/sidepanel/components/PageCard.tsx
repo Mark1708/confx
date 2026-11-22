@@ -1,18 +1,47 @@
 import { AlertCircle, ExternalLink, FileText, Loader2 } from "lucide-react";
 import { useI18n } from "../hooks/useI18n";
 import type { PageInfoResponse } from "../hooks/usePageInfo";
+import type { TabAccessState } from "@/lib/browser/tab-access";
+import type { CurrentTabGrantStatus } from "../hooks/useCurrentTab";
 import { Badge } from "../ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
+import { TabAccessNotice } from "./TabAccessNotice";
 
 interface Props {
   loading: boolean;
   data?: PageInfoResponse;
   error?: Error | null;
   url?: string;
+  accessState?: TabAccessState;
+  accessOrigin?: string;
+  grantStatus: CurrentTabGrantStatus;
+  onGrantAccess: () => void;
+  onRetry: () => void;
 }
 
-export function PageCard({ loading, data, error, url }: Props) {
+export function PageCard({
+  loading,
+  data,
+  error,
+  url,
+  accessState,
+  accessOrigin,
+  grantStatus,
+  onGrantAccess,
+  onRetry,
+}: Props) {
   const { t } = useI18n();
+  if (accessState && accessState !== "available") {
+    return (
+      <TabAccessNotice
+        accessState={accessState}
+        accessOrigin={accessOrigin}
+        grantStatus={grantStatus}
+        onGrantAccess={onGrantAccess}
+        onRetry={onRetry}
+      />
+    );
+  }
   if (loading) {
     return (
       <Card className="overflow-hidden">

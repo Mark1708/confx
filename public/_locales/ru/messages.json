@@ -14,5 +14,35 @@
   "actionDefaultTitle": {
     "message": "ConfX",
     "description": "Заголовок кнопки расширения на панели браузера"
+  },
+  "tabAccessUnsupportedTitle": {
+    "message": "Эта страница браузера не поддерживается"
+  },
+  "tabAccessUnsupportedDescription": {
+    "message": "ConfX может проверять только HTTP- и HTTPS-страницы."
+  },
+  "tabAccessHostMissingTitle": {
+    "message": "Требуется доступ"
+  },
+  "tabAccessHostMissingDescription": {
+    "message": "Разрешите ConfX доступ к текущему сайту и повторите проверку страницы."
+  },
+  "tabAccessGrant": {
+    "message": "Разрешить доступ и повторить"
+  },
+  "tabAccessGrantDeclined": {
+    "message": "Доступ не предоставлен."
+  },
+  "tabAccessGrantFailed": {
+    "message": "Не удалось запросить доступ."
+  },
+  "tabAccessProbeFailedTitle": {
+    "message": "Не удалось проверить страницу"
+  },
+  "tabAccessProbeFailedDescription": {
+    "message": "Браузер отклонил проверку страницы не из-за разрешений."
+  },
+  "tabAccessRetry": {
+    "message": "Повторить"
   }
 }

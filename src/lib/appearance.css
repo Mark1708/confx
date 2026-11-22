@@ -1,0 +1,84 @@
+[data-confx-appearance],
+[data-confx-appearance][data-palette="violet"] {
+  --appearance-hue: 240;
+  --appearance-primary-light: 247 75% 63%;
+  --appearance-on-primary-light: 0 0% 100%;
+  --appearance-primary-dark: 247 75% 63%;
+  --appearance-on-primary-dark: 0 0% 100%;
+}
+
+[data-confx-appearance][data-palette="blue"] {
+  --appearance-hue: 215;
+  --appearance-primary-light: 217 78% 46%;
+  --appearance-on-primary-light: 0 0% 100%;
+  --appearance-primary-dark: 214 86% 64%;
+  --appearance-on-primary-dark: 222 30% 8%;
+}
+
+[data-confx-appearance][data-palette="forest"] {
+  --appearance-hue: 150;
+  --appearance-primary-light: 151 58% 30%;
+  --appearance-on-primary-light: 0 0% 100%;
+  --appearance-primary-dark: 151 48% 56%;
+  --appearance-on-primary-dark: 151 35% 8%;
+}
+
+[data-confx-appearance][data-palette="graphite"] {
+  --appearance-hue: 220;
+  --appearance-primary-light: 220 14% 34%;
+  --appearance-on-primary-light: 0 0% 100%;
+  --appearance-primary-dark: 220 12% 72%;
+  --appearance-on-primary-dark: 220 20% 9%;
+}
+
+[data-confx-appearance][data-palette="amber"] {
+  --appearance-hue: 35;
+  --appearance-primary-light: 32 90% 33%;
+  --appearance-on-primary-light: 0 0% 100%;
+  --appearance-primary-dark: 38 85% 60%;
+  --appearance-on-primary-dark: 30 25% 8%;
+}
+
+[data-confx-appearance] {
+  --background: var(--appearance-hue) 27% 98%;
+  --foreground: var(--appearance-hue) 28% 14%;
+  --muted: var(--appearance-hue) 20% 95%;
+  --muted-foreground: var(--appearance-hue) 9% 40%;
+  --card: 0 0% 100%;
+  --card-foreground: var(--appearance-hue) 28% 14%;
+  --surface: 0 0% 100%;
+  --surface-hover: var(--appearance-hue) 20% 95%;
+  --primary: var(--appearance-primary-light);
+  --primary-foreground: var(--appearance-on-primary-light);
+  --secondary: var(--appearance-hue) 20% 95%;
+  --secondary-foreground: var(--appearance-hue) 28% 14%;
+  --accent: var(--appearance-hue) 20% 95%;
+  --accent-foreground: var(--appearance-hue) 28% 14%;
+  --accent-glow: var(--primary) / 0.2;
+  --success: 166 100% 41%;
+  --warning: 41 87% 55%;
+  --destructive: 355 100% 64%;
+  --destructive-foreground: 0 0% 100%;
+  --border: var(--appearance-hue) 15% 89%;
+  --input: var(--appearance-hue) 15% 89%;
+  --ring: var(--primary);
+}
+
+[data-confx-appearance][data-theme="dark"] {
+  --background: var(--appearance-hue) 20% 5%;
+  --foreground: var(--appearance-hue) 20% 91%;
+  --muted: var(--appearance-hue) 21% 13%;
+  --muted-foreground: var(--appearance-hue) 9% 66%;
+  --card: var(--appearance-hue) 18% 9%;
+  --card-foreground: var(--appearance-hue) 20% 91%;
+  --surface: var(--appearance-hue) 18% 9%;
+  --surface-hover: var(--appearance-hue) 21% 13%;
+  --primary: var(--appearance-primary-dark);
+  --primary-foreground: var(--appearance-on-primary-dark);
+  --secondary: var(--appearance-hue) 21% 13%;
+  --secondary-foreground: var(--appearance-hue) 20% 91%;
+  --accent: var(--appearance-hue) 21% 13%;
+  --accent-foreground: var(--appearance-hue) 20% 91%;
+  --border: var(--appearance-hue) 16% 24%;
+  --input: var(--appearance-hue) 16% 24%;
+}

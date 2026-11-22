@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { fetchPageInfo, type PageInfo } from "../extraction";
+import { fetchPageInfo, type PageInfo } from "../page-info";
 
 export type PageInfoResponse = { ok: true } & PageInfo;
 

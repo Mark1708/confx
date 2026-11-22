@@ -1,17 +1,18 @@
-import { createConfluenceApi } from "@/lib/create-api";
+import { createConfluenceApi, toFetchOptions } from "@/lib/create-api";
+import { loadSettings } from "@/lib/settings";
+import { canonicalBaseUrl, resolveSourceBase } from "@/lib/source-context";
 import { buildPageSnapshot, buildSubtreeSnapshot } from "@/lib/snapshot-walker";
 import type { PageSnapshot, Subscription, SubscriptionDiff } from "@/lib/subscriptions";
 import {
   appendCheckHistory,
   deleteSubscription,
   diffSnapshots,
-  getSubscription,
-  listSubscriptions,
   makeSubscriptionId,
+  migrateSubscriptionSources,
   summarizeDiff,
   upsertSubscription,
 } from "@/lib/subscriptions";
-import type { SubscriptionScope } from "@/types";
+import type { AppSettings, SubscriptionScope } from "@/types";
 
 export interface SubscribeOptions {
   host: string;
@@ -21,8 +22,44 @@ export interface SubscribeOptions {
   onProgress?: (visited: number, title: string) => void;
 }
 
+function resolveSubscriptionBase(host: string, override?: string): string {
+  const baseUrl = canonicalBaseUrl(host);
+  const known = new URL(baseUrl);
+  if (known.pathname !== "/") {
+    return resolveSourceBase(baseUrl, baseUrl).baseUrl;
+  }
+  let sourceUrl = baseUrl;
+  if (override) {
+    try {
+      const candidate = canonicalBaseUrl(override);
+      if (new URL(candidate).origin === known.origin) sourceUrl = candidate;
+    } catch {
+      // An invalid override cannot replace a subscription's canonical source.
+    }
+  }
+  return resolveSourceBase(sourceUrl, baseUrl, override).baseUrl;
+}
+
+function readSubscriptions(settings: AppSettings): Promise<Subscription[]> {
+  return migrateSubscriptionSources((sub) =>
+    sub.sourceBaseVersion === 1
+      ? resolveSourceBase(sub.host, sub.host).baseUrl
+      : resolveSubscriptionBase(sub.host, settings.confluenceBaseUrl),
+  );
+}
+
+export async function listSubscriptions(): Promise<Subscription[]> {
+  return readSubscriptions(await loadSettings());
+}
+
+export async function getSubscription(id: string): Promise<Subscription | null> {
+  return (await listSubscriptions()).find((sub) => sub.id === id) ?? null;
+}
+
 export async function subscribe(opts: SubscribeOptions): Promise<Subscription> {
-  const api = await createConfluenceApi(opts.host);
+  const settings = await loadSettings();
+  const host = resolveSourceBase(opts.host, opts.host).baseUrl;
+  const api = createConfluenceApi(host, toFetchOptions(settings));
   const { snapshot, root } =
     opts.scope === "page"
       ? await buildPageSnapshot(api, opts.rootId)
@@ -32,9 +69,10 @@ export async function subscribe(opts: SubscribeOptions): Promise<Subscription> {
         });
 
   const sub: Subscription = {
-    id: makeSubscriptionId(opts.host, opts.rootId, opts.scope),
+    id: makeSubscriptionId(host, opts.rootId, opts.scope),
     scope: opts.scope,
-    host: opts.host,
+    host,
+    sourceBaseVersion: 1,
     rootId: opts.rootId,
     rootTitle: root.title,
     spaceKey: root.space?.key,
@@ -56,10 +94,11 @@ export async function checkSubscription(
   id: string,
   opts: { maxDepth?: number; onProgress?: (visited: number, title: string) => void } = {},
 ): Promise<CheckResult> {
-  const sub = await getSubscription(id);
+  const settings = await loadSettings();
+  const sub = (await readSubscriptions(settings)).find((item) => item.id === id);
   if (!sub) throw new Error(`Подписка ${id} не найдена`);
 
-  const api = await createConfluenceApi(sub.host);
+  const api = createConfluenceApi(sub.host, toFetchOptions(settings));
   const { snapshot: nextSnapshot } =
     sub.scope === "page"
       ? await buildPageSnapshot(api, sub.rootId)
@@ -98,4 +137,4 @@ export async function acceptChanges(id: string, nextSnapshot: PageSnapshot): Pro
   await upsertSubscription(updated);
 }
 
-export { deleteSubscription, getSubscription, listSubscriptions, makeSubscriptionId };
+export { deleteSubscription, makeSubscriptionId };

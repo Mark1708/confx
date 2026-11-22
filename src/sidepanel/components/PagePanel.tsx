@@ -1,31 +1,24 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Bell, BellRing, Download, Loader2, RefreshCw } from "lucide-react";
-import { DEFAULT_PRESET_ID } from "@/lib/rule-engine";
+import { Bell, BellRing, Loader2, RefreshCw } from "lucide-react";
 import { makeSubscriptionId } from "@/lib/subscriptions";
 import type { CurrentTabInfo } from "../hooks/useCurrentTab";
-import { useExtractJob } from "../hooks/useExtractJob";
 import { useI18n } from "../hooks/useI18n";
 import { usePageInfo } from "../hooks/usePageInfo";
-import { useSettings } from "../hooks/useSettings";
 import { useSubscriptions } from "../hooks/useSubscriptions";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { JobStatus } from "./JobStatus";
 import { PageCard } from "./PageCard";
-import { PresetSelector } from "./PresetSelector";
 
 export function PagePanel({ tab }: { tab: CurrentTabInfo }) {
   const qc = useQueryClient();
   const info = usePageInfo(tab.host, tab.pageId);
-  const { state, run, cancel } = useExtractJob();
   const { t } = useI18n();
-  const { data: settings, update } = useSettings();
   const subs = useSubscriptions();
 
-  const canExtract = info.data?.ok && info.data.meta?.id && state?.status !== "running";
-  const preset = settings?.activePresetId ?? DEFAULT_PRESET_ID;
+  const pageData =
+    !info.isPlaceholderData && info.data?.meta?.id === tab.pageId ? info.data : undefined;
+  const pageId = pageData?.meta?.id;
 
-  const pageId = info.data?.meta?.id;
   const subId = tab.host && pageId ? makeSubscriptionId(tab.host, pageId, "page") : null;
   const subscribed = Boolean(subId && subs.subscriptions.some((s) => s.id === subId));
 
@@ -34,50 +27,42 @@ export function PagePanel({ tab }: { tab: CurrentTabInfo }) {
       <div className="flex min-w-0 items-center justify-between gap-2">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <h2 className="text-sm font-semibold">{t("page.title")}</h2>
-          {info.data?.ok && <Badge variant="success">{t("page.available")}</Badge>}
+          {pageData?.ok && <Badge variant="success">{t("page.available")}</Badge>}
         </div>
         <Button
           variant="ghost"
           size="sm"
           className="shrink-0"
           onClick={() => qc.invalidateQueries({ queryKey: ["page-info"] })}
+          aria-label={t("tabAccess.retry")}
         >
           <RefreshCw className="h-3 w-3" />
         </Button>
       </div>
 
       <PageCard
-        loading={info.isLoading}
-        data={info.data}
+        loading={info.isLoading || info.isPlaceholderData}
+        data={pageData}
         error={info.error as Error | null}
         url={tab.url}
+        accessState={tab.accessState}
+        accessOrigin={tab.accessOrigin}
+        grantStatus={tab.grantStatus}
+        onGrantAccess={tab.grantAccess}
+        onRetry={tab.retry}
       />
-
-      <PresetSelector value={preset} onChange={(id) => update({ activePresetId: id })} />
-
-      <Button
-        variant="accent"
-        className="w-full"
-        disabled={!canExtract}
-        onClick={() =>
-          info.data?.meta &&
-          tab.host &&
-          run({
-            kind: "extract-page",
-            pageId: info.data.meta.id,
-            host: tab.host,
-            presetId: preset,
-          })
-        }
-      >
-        <Download className="h-4 w-4" />
-        {t("page.extract")}
-      </Button>
 
       <Button
         variant="outline"
         className="w-full"
-        disabled={!pageId || !tab.host || subs.subscribing || subscribed}
+        disabled={
+          tab.accessState !== "available" ||
+          !pageId ||
+          !tab.host ||
+          subs.subscribing ||
+          subscribed ||
+          Boolean(subs.error)
+        }
         onClick={() =>
           pageId && tab.host && subs.subscribe({ host: tab.host, rootId: pageId, scope: "page" })
         }
@@ -91,8 +76,11 @@ export function PagePanel({ tab }: { tab: CurrentTabInfo }) {
         )}
         {subscribed ? t("page.subscriptionActive") : t("page.subscribeChanges")}
       </Button>
-
-      <JobStatus state={state} onCancel={cancel} />
+      {subs.error && (
+        <p role="alert" className="text-xs text-destructive">
+          {subs.error.message}
+        </p>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
-import { ChevronRight, FileText, Folder, Loader2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronRight, ExternalLink, FileText, Folder, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/cn";
 import type { HostCache } from "@/lib/tree-cache";
 import { useI18n } from "../hooks/useI18n";
@@ -8,26 +8,17 @@ interface Props {
   nodes: HostCache;
   rootId: string;
   selectedId?: string;
+  expandedIds: readonly string[];
+  onExpandedChange: (ids: string[]) => void;
+  selectionDisabled?: boolean;
+  navigationDisabled?: boolean;
   filter?: string;
   loadingIds?: ReadonlySet<string>;
   visibleIds?: Set<string> | null;
   matchedIds?: Set<string> | null;
   onSelect: (id: string, title: string) => void;
   onExpand: (id: string) => void;
-}
-
-function pathToNode(nodes: HostCache, targetId: string, rootId: string): string[] | null {
-  const chain: string[] = [];
-  let cursor: string | undefined = targetId;
-  const seen = new Set<string>();
-  while (cursor) {
-    if (seen.has(cursor)) return null;
-    seen.add(cursor);
-    chain.unshift(cursor);
-    if (cursor === rootId) return chain;
-    cursor = nodes[cursor]?.parentId;
-  }
-  return null;
+  onNavigate: (id: string) => void;
 }
 
 function highlight(title: string, needle: string): React.ReactNode {
@@ -51,46 +42,33 @@ export function TreeView({
   nodes,
   rootId,
   selectedId,
+  expandedIds,
+  onExpandedChange,
+  selectionDisabled = false,
+  navigationDisabled = false,
   filter,
   loadingIds,
   visibleIds,
   matchedIds,
   onSelect,
   onExpand,
+  onNavigate,
 }: Props) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set([rootId]));
+  const expanded = useMemo(() => new Set(expandedIds), [expandedIds]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const selectedRef = useRef<HTMLDivElement | null>(null);
-  const firstMatchRef = useRef<HTMLDivElement | null>(null);
-  const firstMatchAssignedRef = useRef(false);
   const lastScrolledSelectionRef = useRef<string | null>(null);
   const lastScrolledFilterRef = useRef<string>("");
 
-  useEffect(() => {
-    setExpanded((prev) => (prev.has(rootId) ? prev : new Set([rootId, ...prev])));
-  }, [rootId]);
-
-  useEffect(() => {
-    if (!selectedId) return;
-    const p = pathToNode(nodes, selectedId, rootId);
-    if (!p) return;
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      for (const id of p) next.add(id);
-      return next;
-    });
-  }, [selectedId, nodes, rootId]);
-
-  useEffect(() => {
-    if (!visibleIds || !matchedIds) return;
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      for (const id of visibleIds) {
-        if (!matchedIds.has(id) || nodes[id]?.childrenIds.length) next.add(id);
-      }
-      return next;
-    });
+  const filterExpandedIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!visibleIds || !matchedIds) return ids;
+    for (const id of visibleIds) {
+      const parentId = nodes[id]?.parentId;
+      if (parentId && visibleIds.has(parentId)) ids.add(parentId);
+    }
+    return ids;
   }, [visibleIds, matchedIds, nodes]);
 
   const needle = useMemo(() => filter?.trim().toLowerCase() ?? "", [filter]);
@@ -111,12 +89,10 @@ export function TreeView({
   const toggle = (id: string) => {
     const node = nodes[id];
     const willExpand = !expanded.has(id);
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    const next = new Set(expanded);
+    if (willExpand) next.add(id);
+    else next.delete(id);
+    onExpandedChange([...next]);
     if (willExpand && node && node.hasChildren !== false && !node.childrenLoaded) {
       onExpand(id);
     }
@@ -141,11 +117,11 @@ export function TreeView({
     const needsForFilter = !!currentFilter && lastScrolledFilterRef.current !== currentFilter;
     if (!needsForSelection && !needsForFilter) return;
 
+    const firstMatch = currentFilter
+      ? containerRef.current?.querySelector<HTMLElement>('[data-tree-match="true"]')
+      : null;
     const target =
-      (needsForSelection ? selectedRef.current : null) ??
-      (currentFilter ? firstMatchRef.current : null) ??
-      selectedRef.current ??
-      firstMatchRef.current;
+      (needsForSelection ? selectedRef.current : null) ?? firstMatch ?? selectedRef.current;
     if (!target) return;
 
     if (needsForSelection && selectedId) lastScrolledSelectionRef.current = selectedId;
@@ -178,15 +154,14 @@ export function TreeView({
     );
   }
 
-  firstMatchAssignedRef.current = false;
-
   const renderNode = (id: string, depth: number): React.ReactNode => {
     const node = nodes[id];
     if (!node) return null;
     if (visibleIds && !visibleIds.has(id)) return null;
 
     const isLoading = loadingIds?.has(id) ?? false;
-    const isExpanded = expanded.has(id);
+    const filterExpanded = filterExpandedIds.has(id);
+    const isExpanded = expanded.has(id) || filterExpanded;
     const selected = selectedId === id;
     // Only mark as leaf when we're certain there are no children. When
     // hasChildren is unknown (undefined) we stay optimistic and render as
@@ -194,8 +169,6 @@ export function TreeView({
     const isLeaf = node.hasChildren === false && node.childrenIds.length === 0;
     const showChevron = !isLeaf || isLoading;
     const isMatch = matchedIds ? matchedIds.has(id) : true;
-    const shouldAssignFirstMatch = !!matchedIds && isMatch && !firstMatchAssignedRef.current;
-    if (shouldAssignFirstMatch) firstMatchAssignedRef.current = true;
 
     let childrenToRender: string[];
     if (visibleChildrenByParent && visibleIds) {
@@ -225,8 +198,8 @@ export function TreeView({
         <div
           ref={(el) => {
             if (selected) selectedRef.current = el;
-            if (shouldAssignFirstMatch) firstMatchRef.current = el;
           }}
+          data-tree-match={matchedIds && isMatch ? "true" : undefined}
           className={cn(
             "flex items-center gap-1 rounded px-1 py-1 text-xs transition-colors hover:bg-accent",
             selected &&
@@ -237,7 +210,13 @@ export function TreeView({
           {showChevron ? (
             <button
               type="button"
-              className="grid h-4 w-4 place-items-center text-muted-foreground hover:text-foreground"
+              className="grid h-6 w-6 shrink-0 place-items-center text-muted-foreground hover:text-foreground disabled:opacity-50"
+              aria-expanded={isExpanded}
+              aria-label={t(isExpanded ? "sidepanel.tree.collapse" : "sidepanel.tree.expand", {
+                title: node.title,
+              })}
+              title={filterExpanded ? t("sidepanel.tree.filterExpanded") : undefined}
+              disabled={filterExpanded}
               onClick={(e) => {
                 e.stopPropagation();
                 toggle(id);
@@ -252,14 +231,16 @@ export function TreeView({
               )}
             </button>
           ) : (
-            <span className="w-4" />
+            <span className="w-6 shrink-0" />
           )}
           <button
             type="button"
             className={cn(
-              "flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left",
+              "flex min-h-6 min-w-0 flex-1 cursor-pointer items-center gap-1 text-left disabled:cursor-default disabled:opacity-50",
               matchedIds && !isMatch && "text-muted-foreground",
             )}
+            aria-pressed={selected}
+            disabled={selectionDisabled}
             onClick={() => onSelect(id, node.title)}
           >
             {isLeaf ? (
@@ -281,6 +262,15 @@ export function TreeView({
               {needle && isMatch ? highlight(node.title, needle) : node.title}
             </span>
           </button>
+          <button
+            type="button"
+            className="grid h-6 w-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+            aria-label={t("subtree.openPage", { title: node.title })}
+            disabled={navigationDisabled}
+            onClick={() => onNavigate(id)}
+          >
+            <ExternalLink className="h-3 w-3" />
+          </button>
         </div>
         {isExpanded && childrenToRender.map((cid) => renderNode(cid, depth + 1))}
         {isExpanded && !childrenToRender.length && !isLeaf && !isLoading && (
@@ -298,7 +288,7 @@ export function TreeView({
   return (
     <div
       ref={containerRef}
-      className="min-h-0 min-w-0 flex-1 space-y-1 overflow-auto rounded-md border border-border bg-surface p-1"
+      className="max-h-96 min-h-0 min-w-0 flex-1 space-y-1 overflow-auto rounded-md border border-border bg-surface p-1"
     >
       {renderNode(rootId, 0)}
     </div>

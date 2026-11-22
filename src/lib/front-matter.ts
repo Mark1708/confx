@@ -1,8 +1,9 @@
 import type { ConfluencePageMeta } from "@/types";
+import { CONFX_LAYOUT_MARKER_VERSION } from "./confluence-layout";
 
 export interface FrontMatterOptions {
-  commentCount?: number;
   versionCount?: number;
+  layoutStatus?: "preserved" | "flattened";
 }
 
 export function buildFrontMatter(meta: ConfluencePageMeta, opts?: FrontMatterOptions): string {
@@ -22,12 +23,11 @@ export function buildFrontMatter(meta: ConfluencePageMeta, opts?: FrontMatterOpt
   if (meta.labels?.length) {
     yaml.push(`labels: [${meta.labels.map(quote).join(", ")}]`);
   }
-  if (opts?.commentCount != null && opts.commentCount > 0) {
-    yaml.push(`comments: ${opts.commentCount}`);
-  }
   if (opts?.versionCount != null && opts.versionCount > 0) {
     yaml.push(`versions: ${opts.versionCount}`);
   }
+  if (opts?.layoutStatus === "preserved") yaml.push(`confx_layout: ${CONFX_LAYOUT_MARKER_VERSION}`);
+  if (opts?.layoutStatus === "flattened") yaml.push("confx_layout: unsupported");
   yaml.push(`exported_at: ${new Date().toISOString()}`);
   yaml.push("---");
   return yaml.join("\n") + "\n\n";

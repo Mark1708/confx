@@ -1,4 +1,10 @@
 import type { LocaleOverride } from "@/i18n";
+import type { DestinationKind, ExtractRequest } from "@/lib/export/contracts";
+import type { LauncherOverride, LauncherProduct, LauncherState } from "@/lib/launcher-state";
+
+export type DeepReadonly<T> = T extends object
+  ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
+  : T;
 
 export interface ConfluencePageMeta {
   id: string;
@@ -10,6 +16,172 @@ export interface ConfluencePageMeta {
   labels?: string[];
   ancestors?: Array<{ id: string; title: string }>;
   attachmentCount?: number;
+}
+
+export type ConfluenceExportType =
+  | "single-page"
+  | "block"
+  | "watch-changed"
+  | "subtree"
+  | "space"
+  | "linked-pages";
+
+export type ExportPageOrigin = "root" | "linked" | "subtree" | "space" | "watch" | "block";
+
+export type ExportFailureReason =
+  | "not-found"
+  | "permission-denied"
+  | "unsupported-link"
+  | "page-limit"
+  | "linked-asset-limit"
+  | "layout-unsupported"
+  | "fetch-failed"
+  | "attachment-list-failed"
+  | "attachment-download-failed";
+
+export interface ExportFailure {
+  scope: "page" | "linked-page" | "attachment" | "linked-asset";
+  page_id?: string;
+  from_page_id?: string;
+  href?: string;
+  reason: ExportFailureReason;
+  status?: number;
+}
+
+export interface AttachmentExtractionOutcome {
+  declared: number | null;
+  listed: number;
+  eligible: number;
+  archived: number;
+  skippedSize: number;
+  failedDownloads: number;
+}
+export interface LayoutExtractionOutcome {
+  status: "none" | "preserved" | "flattened";
+  sections: number;
+}
+
+export interface PageExtractionOutcome {
+  attachments: AttachmentExtractionOutcome;
+  plantUml: PlantUmlExtractionOutcome;
+  layout: LayoutExtractionOutcome;
+  failures: ExportFailure[];
+}
+
+export interface ConfluenceExportManifestAttachmentOutcome {
+  declared: number | null;
+  listed: number;
+  eligible: number;
+  archived: number;
+  skipped_size: number;
+  failed_downloads: number;
+}
+
+export interface ConfluenceExportManifestPlantUmlOutcome {
+  discovered: number;
+  archived: number;
+  skipped_limit: number;
+  failed_downloads: number;
+  unsupported: number;
+}
+export interface ConfluenceExportManifestLayoutOutcome {
+  status: LayoutExtractionOutcome["status"];
+  sections: number;
+}
+
+export interface ConfluenceExportManifestPage {
+  id: string;
+  title: string;
+  version: number | null;
+  url: string;
+  space: string | null;
+  parent_id: string | null;
+  ancestors: Array<{ id: string; title: string }>;
+  archive_path: string;
+  origin: ExportPageOrigin;
+  link_depth: number | null;
+  discovered_from: string[];
+  attachment_outcome: ConfluenceExportManifestAttachmentOutcome;
+  plantuml_outcome: ConfluenceExportManifestPlantUmlOutcome;
+  layout_outcome: ConfluenceExportManifestLayoutOutcome;
+  editable: ConfluenceExportManifestEditable;
+}
+
+export interface ConfluenceExportManifestSource {
+  host: string;
+  pageId?: string;
+  rootPageId?: string;
+  rootTitle?: string;
+  title?: string;
+  version?: number | null;
+  space?: string | null;
+  spaceKey?: string;
+  spaceName?: string;
+  url?: string;
+  labels?: string[];
+  ancestors?: Array<{ id: string; title: string }>;
+  requestedPages?: number;
+  skippedPages?: number;
+}
+
+export type ConfluenceExportManifestEditable =
+  | {
+      metadata_version: 1;
+      status: "available";
+      path: string;
+      representation: "storage";
+      version: number;
+      source_hash: string;
+    }
+  | {
+      metadata_version: 1;
+      status: "unavailable";
+      reason: EditableUnavailableReason;
+    };
+
+export interface ConfluenceExportManifest {
+  manifest_version: 2;
+  type: ConfluenceExportType;
+  exported_at: string;
+  preset: string;
+  source: ConfluenceExportManifestSource;
+  counts: {
+    pages: number;
+    tables_csv: number;
+    images: number;
+    attachments: number;
+    plantuml_diagrams: number;
+    requested_pages?: number;
+    exported_pages?: number;
+    skipped_pages?: number;
+  };
+  pages: ConfluenceExportManifestPage[];
+  failures: ExportFailure[];
+}
+
+export interface ConfluenceExportInventory {
+  page: ConfluenceExportManifestPage;
+  counts: {
+    tables_csv: number;
+    images: number;
+    attachments: number;
+    plantuml_diagrams: number;
+  };
+  failures: ExportFailure[];
+}
+
+export interface BuildConfluenceExportManifestOptions {
+  type: ConfluenceExportType;
+  exportedAt?: string;
+  preset: string;
+  source: ConfluenceExportManifestSource;
+  pages: readonly ConfluenceExportInventory[];
+  failures?: readonly ExportFailure[];
+  additionalCounts?: {
+    requested_pages?: number;
+    exported_pages?: number;
+    skipped_pages?: number;
+  };
 }
 
 export interface PageTreeNode {
@@ -43,39 +215,50 @@ export interface RulePreset {
   rules: ExtractionRule[];
 }
 
-export type OutputFormat = "md-csv-images" | "md-only" | "html-archive";
+export type ExportPresetId = "md-attachments" | "md-only" | "tables-only";
 
-export type Theme = "light" | "dark";
+export interface ExportDefaults {
+  presetId: ExportPresetId;
+  package: {
+    editable: boolean;
+    images: boolean;
+    attachments: boolean;
+    plantUmlAssets: boolean;
+    comments: boolean;
+    history: boolean;
+  };
+  conversion: {
+    includeFrontMatter: boolean;
+    rewriteInternalLinks: boolean;
+    deduplicateAssets: boolean;
+    presetRules: ExtractionRule[];
+  };
+  maxDepth: number | null;
+}
+
+export type Theme = "light" | "dark" | "system";
+
+export type ThemePalette = "violet" | "blue" | "forest" | "graphite" | "amber";
 
 export type AppLocaleOverride = LocaleOverride;
 
 export interface AppSettings {
   /** Settings schema version for migration tracking. */
   version: number;
-  /** Confluence host — filled from current tab on first use, editable. */
-  host: string;
+  exportDefaults: ExportDefaults;
   confluenceBaseUrl?: string;
-  outputFormat: OutputFormat;
   concurrency: number;
   requestTimeout: number;
   maxRetries: number;
   maxConcurrency: number;
-  includeFrontMatter: boolean;
-  includeComments: boolean;
-  includeHistory: boolean;
-  rewriteInternalLinks: boolean;
-  deduplicateImages: boolean;
-  exportAttachments: boolean;
   maxAttachmentSize: number;
-  skipUnchanged: boolean;
-  maxDepth: number;
-  activePresetId: string;
   customRules: ExtractionRule[];
   showConfluenceButton: boolean;
   showJiraButton: boolean;
   /** Базовый размер шрифта UI в px. Влияет на весь масштаб через rem. */
   fontSize: number;
   theme: Theme;
+  palette: ThemePalette;
   locale: AppLocaleOverride;
 }
 
@@ -84,6 +267,8 @@ export interface ExtractPageRequest {
   pageId: string;
   host: string;
   presetId: string;
+  /** Body-link traversal depth. Undefined preserves legacy root-only export. */
+  linkedPageDepth?: number;
 }
 
 export interface ExtractWatchChangedRequest {
@@ -143,18 +328,23 @@ export interface StartPickerRequest {
   tabId: number;
 }
 
-export interface OpenMdViewerRequest {
-  kind: "open-md-viewer";
-  host: string;
-  pageId: string;
-  title?: string;
+export interface OpenWorkspaceRequest {
+  kind: "open-workspace";
+  sourceTabId: number;
+  tool: "export" | "edit";
 }
 
-export type OpenJiraExportRequest = {
-  kind: "open-jira-export";
-  issueKey: string;
-  host: string;
-};
+export interface UpdateLauncherStateRequest {
+  kind: "update-launcher-state";
+  origin: string;
+  product: LauncherProduct;
+  /** Null removes this site's override; other sites are never replaced by a caller. */
+  patch: Partial<LauncherOverride> | null;
+}
+
+export type UpdateLauncherStateResponse =
+  | { ok: true; state: LauncherState }
+  | { ok: false; error: string };
 
 export type OpenConfxRequest = {
   kind: "open-confx";
@@ -176,27 +366,9 @@ export type ExtensionRequest =
   | GetPageInfoRequest
   | GetChildrenRequest
   | StartPickerRequest
-  | OpenMdViewerRequest
-  | OpenJiraExportRequest
+  | OpenWorkspaceRequest
+  | UpdateLauncherStateRequest
   | OpenConfxRequest;
-
-export interface ProgressUpdate {
-  kind: "progress";
-  jobId: string;
-  current: number;
-  total: number;
-  message: string;
-  bytesDownloaded?: number;
-}
-
-export interface ExtractResult {
-  kind: "extract-result";
-  jobId: string;
-  ok: boolean;
-  error?: string;
-  zipBase64?: string;
-  fileName?: string;
-}
 
 export interface PickerResult {
   kind: "picker-result";
@@ -204,7 +376,7 @@ export interface PickerResult {
   meta: ConfluencePageMeta;
 }
 
-export type ExtensionMessage = ExtensionRequest | ProgressUpdate | ExtractResult | PickerResult;
+export type ExtensionMessage = ExtensionRequest | PickerResult;
 
 export interface AttachmentInfo {
   id: string;
@@ -235,24 +407,51 @@ export interface ExtractedTable {
 export interface ExtractedImage {
   /** Original src or data-image-src */
   sourceUrl: string;
-  /** Path inside the ZIP (e.g. "images/foo.png") */
-  zipPath: string;
+  /** Package-content-root-relative path, including the owning page folder. */
+  archivePath: string;
   /** Binary content */
   blob: Blob;
   /** SHA-256 hex of the blob, for dedup */
   hash: string;
 }
 
-export interface ExtractedAttachment {
-  sourceUrl: string;
-  zipPath: string;
+export interface ArchivedPlantUmlFile {
+  archivePath: string;
+  fileName: string;
+  mediaType: string;
+  fileSize: number;
   blob: Blob;
   hash: string;
+}
+
+export interface ExtractedPlantUmlAsset {
+  png: ArchivedPlantUmlFile;
+  source: ArchivedPlantUmlFile;
+}
+
+export interface PlantUmlExtractionOutcome {
+  discovered: number;
+  archived: number;
+  skippedLimit: number;
+  failedDownloads: number;
+  unsupported: number;
+}
+
+export interface AttachmentReference {
+  sourceUrl: string;
+  /** Present only for an archived resource, never for a skipped download. */
+  archivePath?: string;
   fileName: string;
   mediaType: string;
   fileSize: number;
   skipped?: boolean;
   skipReason?: string;
+}
+
+export interface ExtractedAttachment extends AttachmentReference {
+  archivePath: string;
+  blob: Blob;
+  hash: string;
 }
 
 export interface ExtractedComment {
@@ -262,6 +461,7 @@ export interface ExtractedComment {
   body: string;
   /** Markdown version of comment body */
   markdown: string;
+  attachments: AttachmentReference[];
 }
 export interface ExtractedInlineCommentReply {
   id: string;
@@ -270,6 +470,7 @@ export interface ExtractedInlineCommentReply {
   body: string;
   /** Markdown version of inline comment body */
   markdown: string;
+  attachments: AttachmentReference[];
 }
 
 export interface ExtractedInlineComment extends ExtractedInlineCommentReply {
@@ -286,72 +487,99 @@ export interface VersionInfo {
   message?: string;
 }
 
+export type EditableUnavailableReason =
+  | "filtered-content"
+  | "source-unavailable"
+  | "invalid-source"
+  | "partial-export";
+
+export type ExtractedPageEditable =
+  | {
+      status: "available";
+      markdown: string;
+      representation: "storage";
+      version: number;
+      sourceHash: string;
+    }
+  | { status: "unavailable"; reason: EditableUnavailableReason };
+
 export interface ExtractedPage {
   meta: ConfluencePageMeta;
   markdown: string;
+  /** Self-contained storage editing sidecar; absent on legacy hand-constructed pages. */
+  editable?: ExtractedPageEditable;
   tables: ExtractedTable[];
   images: ExtractedImage[];
   attachments: ExtractedAttachment[];
+  plantUmlAssets: ExtractedPlantUmlAsset[];
+  commentAttachments: ExtractedAttachment[];
   comments: ExtractedComment[];
   inlineComments: ExtractedInlineComment[];
   history: VersionInfo[];
   /** Folder inside ZIP (for subtree export) */
   folder: string;
+  outcome: PageExtractionOutcome;
 }
 
 export type SubscriptionScope = "page" | "subtree";
 
-export type ExportJobStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+export type ExportJobStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "partial"
+  | "failed"
+  | "cancelled"
+  | "interrupted";
 
-export interface ExportJobConfig {
-  kind:
-    | "extract-page"
-    | "extract-watch-changed"
-    | "extract-subtree"
-    | "extract-block"
-    | "extract-space"
-    | "extract-jira-issue"
-    | "extract-jira-search";
-  host: string;
-  presetId?: string;
+export type ExportJobPhase = "discovering" | "reading" | "writing" | "finalizing" | "downloading";
+
+export interface ExportJobOwner {
+  instanceId: string;
+  surface: "panel" | "popup" | "workspace" | "unknown";
+  tabId?: number;
+  windowId?: number;
+}
+
+export interface ExportJobCounts {
+  processed: number | null;
+  total: number | null;
+  successfulPages: number | null;
+  failedPages: number | null;
+  successfulResources: number | null;
+  failedResources: number | null;
+  entriesWritten: number | null;
+  bytesWritten: number | null;
+}
+
+export interface ExportRequestSummary {
+  kind: ExtractRequest["kind"];
+  destination: DestinationKind;
+  presetId?: ExportPresetId;
   pageId?: string;
   rootPageId?: string;
   spaceKey?: string;
-  spaceOptions?: SpaceExportOptions;
-  maxDepth?: number;
-  html?: string;
-  pageMeta?: ConfluencePageMeta;
   issueKey?: string;
-  jql?: string;
-}
-
-export interface ExportProgressEvent {
-  jobId: string;
-  status: ExportJobStatus;
-  current: number;
-  total: number;
-  message: string;
-  /** Number of pages processed */
-  pagesDone?: number;
-  /** Total pages to process */
-  pagesTotal?: number;
-  /** Bytes downloaded so far */
-  bytesDownloaded?: number;
+  selectionCount?: number;
+  maxDepth?: number | null;
 }
 
 export interface ExportJobState {
+  version: 2;
   id: string;
+  sourceKey: string;
+  owner: ExportJobOwner;
+  request: ExportRequestSummary;
   status: ExportJobStatus;
-  config: ExportJobConfig;
-  progress: { current: number; total: number; message: string };
+  phase: ExportJobPhase | null;
+  message: string;
+  counts: ExportJobCounts;
+  cancelRequested: boolean;
   error?: string;
-  result?: { fileName: string };
+  result?: { fileName: string; downloadId?: number; directoryName?: string };
   startedAt?: string;
   completedAt?: string;
-  /** For subtree resume: index of last successfully processed page */
-  resumeFromIndex?: number;
-  /** Serialized list of already-processed page IDs for resume */
-  processedPageIds?: string[];
+  terminalReason?: string;
 }
 
 // ─── Jira Types ─────────────────────────────────────────────────────

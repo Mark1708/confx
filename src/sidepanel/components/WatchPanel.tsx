@@ -13,23 +13,36 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import { useMemo, useState } from "react";
-import { DEFAULT_PRESET_ID } from "@/lib/rule-engine";
+import { useMemo } from "react";
+import { canonicalBaseUrl, type SourceContext } from "@/lib/source-context";
 import type { DiffEntry, Subscription, SubscriptionDiff } from "@/lib/subscriptions";
 import { useExtractJob } from "../hooks/useExtractJob";
 import { useI18n } from "../hooks/useI18n";
-import { useSettings } from "../hooks/useSettings";
 import { useCheckSubscription, useSubscriptions } from "../hooks/useSubscriptions";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Progress } from "../ui/progress";
 import { Separator } from "../ui/separator";
+import { useWorkspace } from "../workspace/WorkspaceProvider";
+import { DESTINATION_LABEL_KEYS } from "./ExportDestination";
+import { getPresetName } from "./PresetSelector";
+import { getExportTemplate } from "@/lib/rule-engine";
+
+function matchesSubscriptionSource(host: string, source: SourceContext | null): boolean {
+  if (source?.product !== "confluence") return false;
+  try {
+    return canonicalBaseUrl(host) === canonicalBaseUrl(source.baseUrl);
+  } catch {
+    return false;
+  }
+}
 
 export function WatchPanel() {
   const { t } = useI18n();
-  const { subscriptions, loading, remove } = useSubscriptions();
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const { subscriptions, loading, error, remove } = useSubscriptions();
+  const { draft, patchDraft } = useWorkspace();
+  const { expandedId } = draft.watch;
 
   if (loading) {
     return (
@@ -51,6 +64,17 @@ export function WatchPanel() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="min-w-0 space-y-3">
+        <h2 className="text-sm font-semibold">{t("watch.title")}</h2>
+        <p role="alert" className="text-xs text-destructive">
+          {error.message}
+        </p>
+      </div>
+    );
+  }
+
   if (!subscriptions.length) {
     return (
       <div className="min-w-0 space-y-3">
@@ -64,8 +88,8 @@ export function WatchPanel() {
               <div className="min-w-0 space-y-1">
                 <div className="font-medium text-foreground">{t("watch.emptyTitle")}</div>
                 <p>
-                  {t("watch.emptyDescriptionStart")} <b>{t("sidepanel.tabs.page")}</b>{" "}
-                  {t("watch.emptyDescriptionMiddle")} <b>{t("sidepanel.tabs.subtree")}</b>{" "}
+                  {t("watch.emptyDescriptionStart")} <b>{t("sidepanel.scopes.page")}</b>{" "}
+                  {t("watch.emptyDescriptionMiddle")} <b>{t("sidepanel.scopes.subtree")}</b>{" "}
                   {t("watch.emptyDescriptionEnd")}
                 </p>
               </div>
@@ -90,7 +114,12 @@ export function WatchPanel() {
           key={sub.id}
           sub={sub}
           expanded={expandedId === sub.id}
-          onToggle={() => setExpandedId((id) => (id === sub.id ? null : sub.id))}
+          onToggle={() =>
+            patchDraft({
+              watch: { ...draft.watch, expandedId: expandedId === sub.id ? null : sub.id },
+            })
+          }
+          onExpand={() => patchDraft({ watch: { ...draft.watch, expandedId: sub.id } })}
           onDelete={() => remove(sub.id)}
         />
       ))}
@@ -102,18 +131,24 @@ interface RowProps {
   sub: Subscription;
   expanded: boolean;
   onToggle: () => void;
+  onExpand: () => void;
   onDelete: () => void;
 }
 
-function SubscriptionRow({ sub, expanded, onToggle, onDelete }: RowProps) {
+function SubscriptionRow({ sub, expanded, onToggle, onExpand, onDelete }: RowProps) {
   const { t } = useI18n();
   const check = useCheckSubscription();
+  const { source, tab } = useWorkspace();
+  const matchesSource = matchesSubscriptionSource(sub.host, source);
+  const available = matchesSource && tab.accessState === "available";
   const total = Object.keys(sub.snapshot).length;
   const pendingChanges =
     (sub.lastDiffSummary?.added ?? 0) +
     (sub.lastDiffSummary?.removed ?? 0) +
     (sub.lastDiffSummary?.changed ?? 0) +
     (sub.lastDiffSummary?.moved ?? 0);
+  const savedDiff = expanded && pendingChanges > 0 ? sub.checkHistory?.at(-1)?.diff : undefined;
+  const diff = check.state.diff ?? savedDiff;
 
   return (
     <Card>
@@ -129,6 +164,7 @@ function SubscriptionRow({ sub, expanded, onToggle, onDelete }: RowProps) {
               <button
                 type="button"
                 onClick={onToggle}
+                aria-expanded={expanded}
                 className="min-w-0 line-clamp-2 text-left hover:underline"
               >
                 {sub.rootTitle}
@@ -169,8 +205,12 @@ function SubscriptionRow({ sub, expanded, onToggle, onDelete }: RowProps) {
             size="sm"
             variant="outline"
             className="min-w-[6.5rem] flex-1"
-            disabled={check.state.running}
-            onClick={() => check.run(sub)}
+            disabled={check.state.running || !available}
+            onClick={() => {
+              if (!available) return;
+              onExpand();
+              void check.run(sub);
+            }}
           >
             {check.state.running ? (
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -183,6 +223,12 @@ function SubscriptionRow({ sub, expanded, onToggle, onDelete }: RowProps) {
             <Trash2 className="h-3 w-3" />
           </Button>
         </div>
+
+        {!matchesSource && (
+          <p role="status" className="text-warning">
+            {t("watch.sourceMismatch", { host: sub.host })}
+          </p>
+        )}
 
         {check.state.running && (
           <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-2">
@@ -202,16 +248,19 @@ function SubscriptionRow({ sub, expanded, onToggle, onDelete }: RowProps) {
           </div>
         )}
 
-        {check.state.diff && (
+        {diff && (
           <DiffView
             sub={sub}
-            diff={check.state.diff}
-            onAccept={check.accept}
-            onClose={check.reset}
+            diff={diff}
+            onAccept={check.state.nextSnapshot ? check.accept : undefined}
+            onClose={() => {
+              check.reset();
+              if (expanded) onToggle();
+            }}
           />
         )}
 
-        {expanded && !check.state.diff && !check.state.running && <LastSummary sub={sub} />}
+        {expanded && !diff && !check.state.running && <LastSummary sub={sub} />}
       </CardContent>
     </Card>
   );
@@ -267,27 +316,40 @@ function LastSummary({ sub }: { sub: Subscription }) {
 interface DiffProps {
   sub: Subscription;
   diff: SubscriptionDiff;
-  onAccept: () => void;
+  onAccept?: () => void;
   onClose: () => void;
 }
 
 function DiffView({ sub, diff, onAccept, onClose }: DiffProps) {
   const { t } = useI18n();
-  const { data: settings } = useSettings();
-  const preset = settings?.activePresetId ?? DEFAULT_PRESET_ID;
   const extract = useExtractJob();
+  const preset = extract.defaults.presetId;
 
   const downloadable = useMemo(() => [...diff.added, ...diff.changed], [diff]);
-  const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(downloadable.map((e) => e.pageId)),
-  );
-  const toggle = (id: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  const { source, tab, draft, patchDraft, binding } = useWorkspace();
+  const selectedPageIds = draft.watch.selectedPageIds[sub.id];
+  const selected = useMemo(() => {
+    const requested = selectedPageIds === undefined ? undefined : new Set(selectedPageIds);
+    const ids = new Set<string>();
+    for (const entry of downloadable) {
+      if (!requested || requested.has(entry.pageId)) ids.add(entry.pageId);
+    }
+    return ids;
+  }, [downloadable, selectedPageIds]);
+  const matchesSource = matchesSubscriptionSource(sub.host, source);
+  const available = matchesSource && tab.accessState === "available";
+  const toggle = (id: string) => {
+    if (extract.draftLocked) return;
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    patchDraft({
+      watch: {
+        ...draft.watch,
+        selectedPageIds: { ...draft.watch.selectedPageIds, [sub.id]: [...next] },
+      },
     });
+  };
 
   const total = diff.added.length + diff.removed.length + diff.changed.length + diff.moved.length;
   if (total === 0) {
@@ -303,6 +365,7 @@ function DiffView({ sub, diff, onAccept, onClose }: DiffProps) {
   }
 
   const downloadSelected = async () => {
+    if (!available || extract.busy || selected.size === 0) return;
     await extract.run({
       kind: "extract-watch-changed",
       host: sub.host,
@@ -321,14 +384,17 @@ function DiffView({ sub, diff, onAccept, onClose }: DiffProps) {
         <span className="font-medium">{t("watch.diffTitle")}</span>
         <span className="font-mono text-muted-foreground">{total}</span>
         <span className="ml-auto flex min-w-0 flex-wrap gap-1">
-          <Button size="sm" variant="accent" onClick={onAccept}>
-            {t("watch.accept")}
-          </Button>
+          {onAccept && (
+            <Button size="sm" variant="accent" onClick={onAccept}>
+              {t("watch.accept")}
+            </Button>
+          )}
           <Button size="sm" variant="ghost" onClick={onClose}>
             {t("watch.close")}
           </Button>
         </span>
       </div>
+      {!onAccept && <p className="text-muted-foreground">{t("watch.recheckToAccept")}</p>}
       <Separator />
 
       <DiffSection
@@ -336,6 +402,7 @@ function DiffView({ sub, diff, onAccept, onClose }: DiffProps) {
         icon={<Plus className="h-3 w-3 text-emerald-600" />}
         entries={diff.added}
         selectable
+        disabled={extract.draftLocked}
         selected={selected}
         onToggle={toggle}
       />
@@ -344,6 +411,7 @@ function DiffView({ sub, diff, onAccept, onClose }: DiffProps) {
         icon={<PencilLine className="h-3 w-3 text-amber-600" />}
         entries={diff.changed}
         selectable
+        disabled={extract.draftLocked}
         selected={selected}
         onToggle={toggle}
       />
@@ -359,30 +427,42 @@ function DiffView({ sub, diff, onAccept, onClose }: DiffProps) {
       />
 
       {downloadable.length > 0 && (
+        <div className="space-y-1 rounded-md border p-2 text-xs">
+          <p>
+            {getPresetName(t, getExportTemplate(preset))} ·{" "}
+            {t(DESTINATION_LABEL_KEYS[draft.destination])}
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="link"
+            onClick={() => patchDraft({ section: "export" })}
+          >
+            {t("composer.changePackage")}
+          </Button>
+          {extract.defaultsError && (
+            <p role="alert" className="text-destructive">
+              {extract.defaultsError}
+            </p>
+          )}
+          {binding?.owner.surface !== "workspace" && (
+            <p className="text-muted-foreground">{t("composer.watchWorkspaceHelp")}</p>
+          )}
+        </div>
+      )}
+
+      {downloadable.length > 0 && (
         <Button
           size="sm"
           className="w-full"
           onClick={downloadSelected}
-          disabled={extract.state?.status === "running" || selected.size === 0}
+          disabled={!available || extract.busy || selected.size === 0}
         >
           <Download className="h-3 w-3" />
-          {extract.state?.status === "running"
-            ? extract.state.progress.message || t("watch.downloading")
+          {binding?.owner.surface !== "workspace"
+            ? t("composer.continueWorkspace")
             : t("watch.exportChanged", { count: selected.size })}
         </Button>
-      )}
-
-      {extract.state?.status === "failed" && extract.state.error && (
-        <div className="text-[11px] text-destructive">{extract.state.error}</div>
-      )}
-      {extract.state?.status === "completed" && extract.state.result?.fileName && (
-        <div className="flex min-w-0 items-center gap-2 rounded-md border border-success/30 bg-success/5 p-2 text-[11px] text-success">
-          <CheckCircle2 className="h-3 w-3 shrink-0" />
-          <span className="min-w-0 break-all">
-            {t("watch.saved")}{" "}
-            <span className="font-mono text-foreground">{extract.state.result.fileName}</span>
-          </span>
-        </div>
       )}
     </div>
   );
@@ -393,11 +473,20 @@ interface DiffSectionProps {
   icon: React.ReactNode;
   entries: DiffEntry[];
   selectable?: boolean;
+  disabled?: boolean;
   selected?: Set<string>;
   onToggle?: (id: string) => void;
 }
 
-function DiffSection({ label, icon, entries, selectable, selected, onToggle }: DiffSectionProps) {
+function DiffSection({
+  label,
+  icon,
+  entries,
+  selectable,
+  selected,
+  disabled,
+  onToggle,
+}: DiffSectionProps) {
   if (!entries.length) return null;
   return (
     <div className="space-y-1">
@@ -417,6 +506,8 @@ function DiffSection({ label, icon, entries, selectable, selected, onToggle }: D
                 type="checkbox"
                 className="h-3 w-3"
                 checked={selected.has(e.pageId)}
+                disabled={disabled}
+                aria-label={e.title}
                 onChange={() => onToggle(e.pageId)}
               />
             )}

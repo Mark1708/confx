@@ -1,190 +1,148 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createExportJob, type ExportJob } from "@/lib/export-job";
-import { clearJobState, loadLastJobState, saveJobState } from "@/lib/export-state";
-import type { ExportJobConfig, ExportJobState, ExtensionRequest } from "@/types";
+import { useCallback, useState } from "react";
+import type { I18nKey } from "@/i18n";
+import { isExtractRequest, type PreparedExport } from "@/lib/export/contracts";
+import { DEFAULT_SETTINGS } from "@/lib/settings";
+import type { ExportDefaults, ExtensionRequest } from "@/types";
 import {
-  downloadBlob,
-  extractBlock,
-  extractJiraIssue,
-  extractJiraSearch,
-  extractPage,
-  extractSpace,
-  extractSubtree,
-  extractWatchChanged,
-  type ProgressEvent,
-} from "../extraction";
+  destinationCapability,
+  notifyDestinationPrepared,
+  openDestinationDirectory,
+  type DestinationCapabilityReason,
+} from "../workspace/destinations";
+import { openWorkspaceTab } from "../workspace/open-workspace";
+import { useWorkspace } from "../workspace/WorkspaceProvider";
+import { useI18n } from "./useI18n";
 
-type ExtractRequest = Extract<
-  ExtensionRequest,
-  {
-    kind:
-      | "extract-page"
-      | "extract-watch-changed"
-      | "extract-subtree"
-      | "extract-block"
-      | "extract-space"
-      | "extract-jira-issue"
-      | "extract-jira-search";
-  }
->;
+const message = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const DESTINATION_REASON_KEYS: Readonly<Record<DestinationCapabilityReason, I18nKey>> = {
+  "insecure-context": "sidepanel.destination.reasons.insecureContext",
+  "api-unavailable": "sidepanel.destination.reasons.apiUnavailable",
+  "surface-restricted": "sidepanel.destination.reasons.surfaceRestricted",
+};
 
 export function useExtractJob() {
-  const [state, setState] = useState<ExportJobState | null>(null);
-  const [restoredState, setRestoredState] = useState<ExportJobState | null>(null);
-  const jobRef = useRef<ExportJob | null>(null);
+  const { source, sourceKey, draft, patchDraft, controller, exportView, settings, store, binding } =
+    useWorkspace();
+  const { t } = useI18n();
+  const [defaultsError, setDefaultsError] = useState<string | null>(null);
+  const defaults =
+    draft.defaults ?? settings.data?.exportDefaults ?? DEFAULT_SETTINGS.exportDefaults;
+  const draftLocked =
+    exportView.selecting || (exportView.busy && exportView.state?.sourceKey === sourceKey);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const restoreRunningJob = async (): Promise<void> => {
-      try {
-        const savedState = await loadLastJobState();
-        if (!isMounted || savedState?.status !== "running") return;
-
-        setState(savedState);
-        setRestoredState(savedState);
-        await clearJobState(savedState.id);
-      } catch (_error: unknown) {
+  const setDefaults = useCallback(
+    (next: ExportDefaults) => {
+      patchDraft({ defaults: next });
+      setDefaultsError(null);
+    },
+    [patchDraft],
+  );
+  const saveDefaults = useCallback(async () => {
+    const override = draft.defaults;
+    setDefaultsError(null);
+    try {
+      await settings.updateAsync({ exportDefaults: structuredClone(defaults) });
+      if (
+        override &&
+        JSON.stringify(store.getSnapshot().drafts.get(sourceKey)?.defaults) ===
+          JSON.stringify(override)
+      ) {
+        store.update(sourceKey, { defaults: null });
+      }
+    } catch (error) {
+      setDefaultsError(message(error));
+    }
+  }, [draft.defaults, defaults, settings.updateAsync, sourceKey, store]);
+  const run = useCallback(
+    async (request: ExtensionRequest) => {
+      if (!isExtractRequest(request) || exportView.busy || exportView.selecting) return;
+      setDefaultsError(null);
+      const destination = draft.destination;
+      const multiplePages =
+        request.kind === "extract-subtree" ||
+        request.kind === "extract-space" ||
+        request.kind === "extract-jira-search" ||
+        request.kind === "extract-watch-changed";
+      if (
+        binding?.owner.surface !== "workspace" &&
+        (multiplePages || destination !== "download-zip")
+      ) {
+        try {
+          if (!source) throw new Error(t("sourceBase.sourceUnavailable"));
+          await store.flush();
+          await openWorkspaceTab(source.tabId, "export");
+        } catch (error) {
+          setDefaultsError(message(error));
+        }
         return;
       }
-    };
-
-    restoreRunningJob();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  const run = useCallback(async (req: ExtensionRequest) => {
-    if (!isExtractRequest(req)) return;
-
-    const config = buildConfig(req);
-    const job = createExportJob(config);
-    jobRef.current = job;
-
-    job.start();
-    setState(job.toState());
-    saveJobState(job.toState()).catch(() => undefined);
-
-    const onProgress = (progress: ProgressEvent): void => {
-      job.updateProgress(progress.current, progress.total, progress.message);
-      setState(job.toState());
-      saveJobState(job.toState()).catch(() => undefined);
-    };
-
-    try {
-      const signal = job.signal;
-      const result = await runExtraction(req, onProgress, signal);
-      await downloadBlob(result.zipBlob, result.fileName);
-      job.complete(result.fileName);
-    } catch (error: unknown) {
-      if (job.status !== "cancelled") {
-        job.fail(getErrorMessage(error));
+      const capability = destinationCapability(destination, binding?.owner.surface);
+      if (!capability.supported && capability.reason) {
+        // An unusable mode surfaces its reason; the user picks another destination explicitly.
+        setDefaultsError(t(DESTINATION_REASON_KEYS[capability.reason]));
+        return;
       }
-    } finally {
-      setState(job.toState());
-      clearJobState(job.id).catch(() => undefined);
-      jobRef.current = null;
-    }
-  }, []);
-
-  const cancel = useCallback(() => {
-    const job = jobRef.current;
-    if (!job) return;
-
-    job.cancel();
-    setState(job.toState());
-  }, []);
-
-  const reset = useCallback(() => {
-    jobRef.current?.cancel();
-    jobRef.current = null;
-    setState(null);
-    setRestoredState(null);
-  }, []);
-
-  return { state, restoredState, run, cancel, reset };
-}
-
-function isExtractRequest(req: ExtensionRequest): req is ExtractRequest {
-  return (
-    req.kind === "extract-page" ||
-    req.kind === "extract-watch-changed" ||
-    req.kind === "extract-subtree" ||
-    req.kind === "extract-block" ||
-    req.kind === "extract-space" ||
-    req.kind === "extract-jira-issue" ||
-    req.kind === "extract-jira-search"
+      let prepared: PreparedExport;
+      try {
+        if (!source) throw new Error(t("sourceBase.sourceUnavailable"));
+        if (!settings.data) throw new Error("Export settings have not loaded");
+        prepared = controller.prepare(
+          source,
+          {
+            request,
+            defaults,
+            destination,
+          },
+          settings.data,
+        );
+      } catch (error) {
+        setDefaultsError(message(error));
+        return;
+      }
+      // The native picker is the first promise of this click: user activation does
+      // not survive earlier awaits, and the handle promise goes straight to the
+      // controller, which resolves it before acquiring the export lock.
+      try {
+        if (destination !== "download-zip") {
+          notifyDestinationPrepared({ id: prepared.id, rootName: prepared.rootName, destination });
+          await controller.start(prepared, openDestinationDirectory());
+        } else {
+          await controller.start(prepared, "download-zip");
+        }
+      } catch (error) {
+        setDefaultsError(message(error));
+      }
+    },
+    [
+      source,
+      settings.data,
+      defaults,
+      draft.destination,
+      controller,
+      exportView.busy,
+      exportView.selecting,
+      binding,
+      store,
+      t,
+    ],
   );
-}
+  const cancel = useCallback(() => {
+    controller.cancel();
+  }, [controller]);
 
-function buildConfig(req: ExtractRequest): ExportJobConfig {
-  if (req.kind === "extract-page") {
-    return { kind: "extract-page", host: req.host, presetId: req.presetId, pageId: req.pageId };
-  }
-
-  if (req.kind === "extract-watch-changed") {
-    return { kind: "extract-watch-changed", host: req.host, presetId: req.presetId };
-  }
-
-  if (req.kind === "extract-subtree") {
-    return {
-      kind: "extract-subtree",
-      host: req.host,
-      presetId: req.presetId,
-      rootPageId: req.rootPageId,
-      maxDepth: req.maxDepth,
-    };
-  }
-
-  if (req.kind === "extract-block") {
-    return {
-      kind: "extract-block",
-      host: req.pageMeta.baseUrl,
-      presetId: req.presetId,
-      html: req.html,
-      pageMeta: req.pageMeta,
-    };
-  }
-
-  if (req.kind === "extract-space") {
-    return {
-      kind: "extract-space",
-      host: req.host,
-      presetId: req.presetId,
-      spaceKey: req.spaceKey,
-      spaceOptions: req.options,
-      maxDepth: req.maxDepth,
-    };
-  }
-
-  if (req.kind === "extract-jira-issue") {
-    return { kind: "extract-jira-issue", host: req.host, issueKey: req.issueKey };
-  }
-
-  if (req.kind === "extract-jira-search") {
-    return { kind: "extract-jira-search", host: req.host, jql: req.jql };
-  }
-
-  throw new Error("Unknown extraction request kind");
-}
-
-async function runExtraction(
-  req: ExtractRequest,
-  onProgress: (progress: ProgressEvent) => void,
-  signal?: AbortSignal,
-) {
-  if (req.kind === "extract-page") return extractPage(req, onProgress, signal);
-  if (req.kind === "extract-watch-changed") return extractWatchChanged(req, onProgress, signal);
-  if (req.kind === "extract-subtree") return extractSubtree(req, onProgress, signal);
-  if (req.kind === "extract-space") return extractSpace(req, onProgress, signal);
-  if (req.kind === "extract-jira-issue") return extractJiraIssue(req, onProgress, signal);
-  if (req.kind === "extract-jira-search") return extractJiraSearch(req, onProgress, signal);
-  return extractBlock(req, onProgress, signal);
-}
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
+  return {
+    run,
+    cancel,
+    busy: exportView.busy,
+    ownsJob: exportView.ownsJob,
+    selecting: exportView.selecting,
+    draftLocked,
+    defaults,
+    setDefaults,
+    saveDefaults,
+    savingDefaults: settings.saving,
+    defaultsError,
+  };
 }

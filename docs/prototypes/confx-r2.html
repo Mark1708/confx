@@ -1,0 +1,2092 @@
+<!doctype html>
+<html lang="ru" class="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'"
+    />
+    <title>Confx R2 · Интерактивный прототип</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --background: 240 27% 98%;
+        --foreground: 240 28% 14%;
+        --muted: 240 20% 95%;
+        --muted-foreground: 240 9% 40%;
+        --surface: 0 0% 100%;
+        --primary: 247 75% 63%;
+        --primary-foreground: 0 0% 100%;
+        --border: 240 15% 89%;
+        --ring: 247 75% 63%;
+        --radius: 12px;
+      }
+      html.dark {
+        color-scheme: dark;
+        --background: 240 20% 5%;
+        --foreground: 240 20% 91%;
+        --muted: 240 21% 13%;
+        --muted-foreground: 240 9% 66%;
+        --surface: 240 18% 9%;
+        --border: 240 16% 24%;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: hsl(var(--background));
+        color: hsl(var(--foreground));
+        font:
+          14px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          system-ui,
+          sans-serif;
+      }
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+      button,
+      select,
+      input,
+      textarea {
+        color: inherit;
+      }
+      button,
+      select,
+      input[type="text"],
+      input[type="number"],
+      textarea {
+        border: 1px solid hsl(var(--border));
+        background: hsl(var(--surface));
+        border-radius: 8px;
+        padding: 8px 12px;
+        min-height: 36px;
+        max-width: 100%;
+      }
+      button {
+        cursor: pointer;
+        font-weight: 500;
+      }
+      button:hover:not(:disabled) {
+        background: hsl(var(--muted));
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      button.primary {
+        background: hsl(var(--primary));
+        color: hsl(var(--primary-foreground));
+        border-color: hsl(var(--primary));
+      }
+      button.primary:hover:not(:disabled) {
+        filter: brightness(0.93);
+      }
+      :focus-visible {
+        outline: 2px solid hsl(var(--ring));
+        outline-offset: 3px;
+      }
+      input[type="checkbox"],
+      input[type="radio"] {
+        accent-color: hsl(var(--primary));
+        width: 16px;
+        height: 16px;
+        flex: none;
+      }
+      select,
+      input[type="text"],
+      textarea {
+        width: 100%;
+        min-width: 0;
+      }
+      textarea {
+        resize: vertical;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+      h1 {
+        font-size: 20px;
+        line-height: 1.3;
+        font-weight: 650;
+        letter-spacing: -0.4px;
+      }
+      h2 {
+        font-size: 16px;
+        font-weight: 650;
+      }
+      h3 {
+        font-size: 14px;
+        font-weight: 650;
+      }
+      small,
+      .hint {
+        font-size: 12px;
+        color: hsl(var(--muted-foreground));
+      }
+      .hint {
+        margin-top: 6px;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .between {
+        justify-content: space-between;
+      }
+      .stack {
+        display: grid;
+        gap: 12px;
+      }
+      .muted {
+        color: hsl(var(--muted-foreground));
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid hsl(var(--border));
+        background: hsl(var(--muted));
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .demo-bar {
+        border-bottom: 1px solid hsl(var(--border));
+        padding: 10px 20px;
+        background: hsl(var(--muted));
+      }
+      .demo-bar > div {
+        max-width: 1080px;
+        margin: auto;
+      }
+      .demo-bar strong {
+        font-size: 12px;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+      }
+      .demo-bar details {
+        margin-top: 8px;
+      }
+      summary {
+        cursor: pointer;
+        min-height: 28px;
+        font-weight: 500;
+      }
+      .demo-controls {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        padding: 12px 0 4px;
+      }
+      .field {
+        display: grid;
+        gap: 6px;
+        min-width: 0;
+      }
+      .field > span {
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .shell {
+        max-width: 1120px;
+        margin: auto;
+        padding: 24px 20px 48px;
+      }
+      header {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+        padding-bottom: 20px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .logo {
+        width: 36px;
+        height: 36px;
+        border: 1px solid hsl(var(--primary));
+        color: hsl(var(--primary));
+        border-radius: 10px;
+        display: grid;
+        place-items: center;
+        font-size: 20px;
+        font-weight: 700;
+      }
+      .source-card {
+        border: 1px solid hsl(var(--border));
+        border-radius: var(--radius);
+        background: hsl(var(--surface));
+        padding: 12px 16px;
+        margin-bottom: 16px;
+      }
+      .source-title {
+        font-weight: 600;
+      }
+      .source-url {
+        overflow-wrap: anywhere;
+        font-size: 12px;
+        color: hsl(var(--muted-foreground));
+      }
+      .notice {
+        padding: 12px;
+        border: 1px solid hsl(var(--border));
+        border-left: 3px solid hsl(var(--primary));
+        background: hsl(var(--muted));
+        border-radius: 8px;
+        font-size: 13px;
+      }
+      .notice p + p {
+        margin-top: 4px;
+      }
+      .nav {
+        display: flex;
+        gap: 4px;
+        border-bottom: 1px solid hsl(var(--border));
+        padding-bottom: 8px;
+        margin: 20px 0;
+      }
+      .nav button {
+        background: transparent;
+        border-color: transparent;
+        padding: 8px 12px;
+      }
+      .nav button[aria-current="page"] {
+        color: hsl(var(--primary));
+        background: hsl(var(--muted));
+        border-color: hsl(var(--border));
+      }
+      .job {
+        border: 1px solid hsl(var(--primary));
+        border-radius: var(--radius);
+        background: hsl(var(--surface));
+        padding: 12px 16px;
+        margin: 16px 0;
+      }
+      progress {
+        accent-color: hsl(var(--primary));
+        height: 6px;
+        width: 100%;
+        display: block;
+        margin: 10px 0;
+      }
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 280px;
+        align-items: start;
+        gap: 20px;
+      }
+      .card {
+        background: hsl(var(--surface));
+        border: 1px solid hsl(var(--border));
+        border-radius: var(--radius);
+        padding: 20px;
+        min-width: 0;
+      }
+      .card + .card {
+        margin-top: 16px;
+      }
+      .step {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+      .step > span {
+        display: grid;
+        place-items: center;
+        width: 24px;
+        height: 24px;
+        background: hsl(var(--muted));
+        border: 1px solid hsl(var(--border));
+        border-radius: 6px;
+        font-size: 12px;
+      }
+      .segmented {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 4px;
+        padding: 4px;
+        background: hsl(var(--muted));
+        border-radius: 10px;
+        margin-bottom: 16px;
+      }
+      .segmented button {
+        border-color: transparent;
+        background: transparent;
+        padding: 8px 4px;
+        font-size: 13px;
+      }
+      .segmented button[aria-pressed="true"] {
+        background: hsl(var(--surface));
+        border-color: hsl(var(--border));
+      }
+      .check-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px 12px;
+        margin: 12px 0;
+      }
+      .check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 32px;
+      }
+      .check:has(:disabled) {
+        color: hsl(var(--muted-foreground));
+      }
+      .choice {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 12px;
+        border: 1px solid hsl(var(--border));
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .choice:has(:checked) {
+        border-color: hsl(var(--primary));
+        background: hsl(var(--muted));
+      }
+      .choice span {
+        min-width: 0;
+      }
+      .choice strong,
+      .choice small {
+        display: block;
+      }
+      .choice input {
+        margin-top: 4px;
+      }
+      .summary {
+        position: sticky;
+        top: 16px;
+      }
+      .summary dl {
+        margin: 16px 0;
+        display: grid;
+        gap: 12px;
+      }
+      .summary dt {
+        font-size: 12px;
+        color: hsl(var(--muted-foreground));
+      }
+      .summary dd {
+        margin: 2px 0 0;
+        overflow-wrap: anywhere;
+      }
+      .summary .primary {
+        width: 100%;
+      }
+      .file-list {
+        font:
+          12px/1.8 ui-monospace,
+          SFMono-Regular,
+          Consolas,
+          monospace;
+        padding: 12px;
+        background: hsl(var(--muted));
+        border-radius: 8px;
+        overflow-wrap: anywhere;
+      }
+      .tree {
+        border: 1px solid hsl(var(--border));
+        border-radius: 8px;
+        padding: 8px;
+        max-height: 280px;
+        overflow: auto;
+        margin: 12px 0;
+      }
+      .tree-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+      }
+      .tree-row > button {
+        text-align: left;
+        border-color: transparent;
+        padding: 4px 8px;
+        min-height: 32px;
+      }
+      .tree-row .node {
+        flex: 1;
+        min-width: 0;
+      }
+      .node[aria-pressed="true"] {
+        background: hsl(var(--muted));
+        color: hsl(var(--primary));
+      }
+      .tree-children {
+        padding-left: 20px;
+      }
+      .tree .open-node {
+        font-size: 12px;
+      }
+      .inline-fields {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 12px;
+      }
+      .subheading {
+        margin: 20px 0 12px;
+      }
+      .dropzone {
+        border: 1px dashed hsl(var(--primary));
+        border-radius: 10px;
+        padding: 24px 16px;
+        text-align: center;
+        background: hsl(var(--muted));
+      }
+      .dropzone .row {
+        justify-content: center;
+        margin-top: 12px;
+      }
+      .diff {
+        font:
+          12px/1.8 ui-monospace,
+          SFMono-Regular,
+          Consolas,
+          monospace;
+        white-space: pre;
+        overflow: auto;
+        padding: 12px;
+        border: 1px solid hsl(var(--border));
+        border-radius: 8px;
+      }
+      #edit-diff {
+        white-space: normal;
+      }
+      #edit-diff > * {
+        display: block;
+        white-space: pre;
+      }
+      .diff del {
+        text-decoration: none;
+        display: block;
+        color: hsl(var(--muted-foreground));
+      }
+      .diff ins {
+        text-decoration: none;
+        display: block;
+        background: hsl(var(--muted));
+        color: hsl(var(--foreground));
+      }
+      .divider {
+        border: 0;
+        border-top: 1px solid hsl(var(--border));
+        margin: 16px 0;
+      }
+      .watch-row {
+        display: flex;
+        gap: 12px;
+        justify-content: space-between;
+        padding: 12px 0;
+        border-top: 1px solid hsl(var(--border));
+        flex-wrap: wrap;
+      }
+      .settings-grid {
+        display: grid;
+        grid-template-columns: 180px minmax(0, 1fr);
+        gap: 20px;
+      }
+      .settings-nav {
+        display: grid;
+        gap: 4px;
+        align-content: start;
+      }
+      .settings-nav a {
+        color: inherit;
+        text-decoration: none;
+        padding: 8px 12px;
+        border-radius: 8px;
+      }
+      .settings-nav a:hover {
+        background: hsl(var(--muted));
+      }
+      .settings-section {
+        scroll-margin-top: 16px;
+      }
+      .settings-section h2 {
+        margin-bottom: 12px;
+      }
+      .launcher-stage {
+        position: relative;
+        height: 220px;
+        border: 1px solid hsl(var(--border));
+        border-radius: 10px;
+        background: hsl(var(--background));
+        overflow: hidden;
+        padding: 16px;
+      }
+      .launcher {
+        position: absolute;
+        right: 12px;
+        top: 120px;
+        width: 40px;
+        height: 40px;
+        padding: 0;
+        border-color: hsl(var(--primary));
+        color: hsl(var(--primary));
+        font-weight: 700;
+        touch-action: none;
+        user-select: none;
+      }
+      .launcher-menu {
+        position: absolute;
+        right: 12px;
+        top: 12px;
+        z-index: 2;
+        background: hsl(var(--surface));
+        border: 1px solid hsl(var(--border));
+        border-radius: 8px;
+        padding: 4px;
+        max-width: calc(100% - 24px);
+      }
+      .launcher-menu button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        border: 0;
+        font-size: 12px;
+      }
+      .toast {
+        position: fixed;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10;
+        padding: 12px 16px;
+        background: hsl(var(--foreground));
+        color: hsl(var(--background));
+        border-radius: 10px;
+        width: max-content;
+        max-width: calc(100% - 24px);
+        font-size: 13px;
+        box-shadow: 0 4px 20px #0002;
+      }
+      .footer {
+        margin-top: 24px;
+        font-size: 12px;
+        color: hsl(var(--muted-foreground));
+      }
+      @media (max-width: 800px) {
+        .workspace {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .summary {
+          position: static;
+        }
+        .demo-controls {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+      @media (max-width: 480px) {
+        .shell {
+          padding: 16px 12px 32px;
+        }
+        .demo-bar {
+          padding: 10px 12px;
+        }
+        .card {
+          padding: 16px;
+        }
+        header {
+          gap: 12px;
+        }
+        .header-actions {
+          width: 100%;
+        }
+        .header-actions > button:first-child {
+          flex: 1;
+        }
+        .nav {
+          gap: 0;
+        }
+        .nav button {
+          font-size: 12px;
+          padding: 8px;
+          flex: 1;
+        }
+        .check-grid,
+        .inline-fields {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .settings-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .settings-nav {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0;
+        }
+        .settings-nav a {
+          font-size: 12px;
+          padding: 6px 8px;
+        }
+        .demo-controls {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .tree-row {
+          flex-wrap: wrap;
+        }
+        .tree .open-node {
+          margin-left: 28px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="demo-bar">
+      <div>
+        <div class="row between">
+          <strong>Confx R2 · Прототип</strong><span class="badge">Lorem · без подключения</span>
+        </div>
+        <p class="hint">
+          Все действия демонстрационные. Нет чтения файлов, сохранения, публикации или сетевых
+          запросов. Состояние живёт до перезагрузки.
+        </p>
+        <details id="demo-controls">
+          <summary>Сценарии для проверки интерфейса</summary>
+          <div class="demo-controls">
+            <label class="field"
+              ><span>Поверхность</span
+              ><select id="surface">
+                <option value="workspace">Рабочая вкладка</option>
+                <option value="panel">Panel / Web Panel</option>
+              </select></label
+            >
+            <label class="field"
+              ><span>Источник</span
+              ><select id="product">
+                <option value="confluence">Confluence · Lorem</option>
+                <option value="jira">Jira · LOR-12</option>
+                <option value="other">Другая страница</option>
+              </select></label
+            >
+            <label class="field"
+              ><span>Доступ к источнику</span
+              ><select id="access">
+                <option value="ready">Разрешён</option>
+                <option value="denied">Нет разрешения</option>
+                <option value="lost">Исходная вкладка закрыта</option>
+              </select></label
+            >
+            <label class="field"
+              ><span>Filesystem API</span
+              ><select id="filesystem">
+                <option value="supported">Поддерживается</option>
+                <option value="unsupported">Не поддерживается / policy</option>
+              </select></label
+            >
+            <label class="field"
+              ><span>Состояние задания</span
+              ><select id="job-scenario">
+                <option value="idle">Нет задания</option>
+                <option value="running">Выполняется</option>
+                <option value="partial">Частичный результат</option>
+                <option value="completed">Завершено</option>
+                <option value="cancelled">Отменено</option>
+                <option value="interrupted">Прервано закрытием owner</option>
+                <option value="permission">Permission denied</option>
+                <option value="failed">Ошибка записи</option>
+                <option value="downloading">Ожидание сохранения ZIP</option>
+              </select></label
+            >
+            <label class="field"
+              ><span>Проверка editable.md</span
+              ><select id="edit-scenario">
+                <option value="ready">Корректные изменения</option>
+                <option value="unchanged">Без изменений</option>
+                <option value="wrong">Другая страница</option>
+                <option value="conflict">Конфликт версии</option>
+                <option value="malformed">Неверный формат</option>
+                <option value="loss">Потери преобразования</option>
+              </select></label
+            >
+            <label class="field"
+              ><span>Владелец задания</span
+              ><select id="owner">
+                <option value="self">Эта поверхность</option>
+                <option value="other">Другая рабочая вкладка</option>
+              </select></label
+            >
+            <button id="theme-toggle" type="button">Тема: светлая</button>
+          </div>
+        </details>
+      </div>
+    </div>
+    <div class="shell">
+      <header>
+        <div class="brand">
+          <span class="logo" aria-hidden="true">c↗</span>
+          <div>
+            <h1>Confx</h1>
+            <p id="surface-label" class="muted">Рабочая вкладка</p>
+          </div>
+        </div>
+        <div class="row header-actions">
+          <button id="workspace-open">Открыть рабочую вкладку</button
+          ><button id="settings-open" aria-label="Настройки">Настройки</button>
+        </div>
+      </header>
+      <section class="source-card" aria-label="Закреплённый источник">
+        <div class="row between">
+          <span id="source-product" class="badge">Confluence</span
+          ><span id="access-label" class="badge">Доступ разрешён</span>
+        </div>
+        <p id="source-title" class="source-title" style="margin-top: 8px">Lorem Handbook</p>
+        <p id="source-url" class="source-url">lorem.example / wiki / spaces / LOR / pages / 1001</p>
+        <p class="hint">
+          Источник закреплён. Переключение вкладок браузера не меняет цель операции.
+        </p>
+      </section>
+      <div id="source-warning" class="notice" hidden role="status"></div>
+      <div id="job" class="job" hidden role="status" aria-live="polite">
+        <div class="row between">
+          <strong id="job-title"></strong><span class="badge">LOREM-EXPORT-01</span>
+        </div>
+        <p id="job-detail" class="hint"></p>
+        <progress id="job-progress" max="8" value="3" aria-label="Обработано страниц"></progress>
+        <div class="row between">
+          <small id="job-counts"></small><button id="job-action">Отменить</button>
+        </div>
+      </div>
+      <div id="work-surface">
+        <nav class="nav" aria-label="Рабочие разделы">
+          <button data-section="export" aria-current="page">Экспорт</button
+          ><button data-section="edit">Обновление страницы</button
+          ><button data-section="watch">Наблюдение</button>
+        </nav>
+        <main>
+          <section id="section-export" aria-label="Экспорт">
+            <div class="workspace">
+              <div>
+                <section class="card">
+                  <div class="step">
+                    <span>1</span>
+                    <h2>Что экспортировать</h2>
+                  </div>
+                  <div
+                    id="scopes"
+                    class="segmented"
+                    role="group"
+                    aria-label="Область экспорта"
+                  ></div>
+                  <div id="scope-page">
+                    <h3 id="page-card-title">Lorem Handbook</h3>
+                    <p class="hint">LOR · страница 1001 · версия 7</p>
+                    <p class="hint">Снимок содержимого будет зафиксирован при запуске.</p>
+                  </div>
+                  <div id="scope-subtree" hidden>
+                    <div class="notice">
+                      <strong>Корень экспорта: <span id="root-label">Lorem Handbook</span></strong>
+                      <p>Выбор узла не открывает страницу в исходной вкладке.</p>
+                    </div>
+                    <label class="field" style="margin-top: 12px"
+                      ><span>Найти страницу</span
+                      ><input
+                        id="tree-search"
+                        type="text"
+                        placeholder="Название страницы"
+                        autocomplete="off"
+                    /></label>
+                    <div class="row" style="margin-top: 8px">
+                      <label class="check"
+                        ><input id="tree-filter" type="checkbox" /> Только с меткой guide</label
+                      >
+                    </div>
+                    <div class="tree" aria-label="Дерево страниц">
+                      <div class="tree-row" data-tree-name="lorem handbook" data-guide="true">
+                        <button
+                          id="tree-expand"
+                          aria-expanded="true"
+                          aria-controls="tree-children"
+                          aria-label="Свернуть Lorem Handbook"
+                        >
+                          −</button
+                        ><button class="node" data-root="Lorem Handbook" aria-pressed="true">
+                          Lorem Handbook</button
+                        ><button class="open-node" data-open-page="Lorem Handbook">
+                          Открыть страницу
+                        </button>
+                      </div>
+                      <div id="tree-children" class="tree-children">
+                        <div
+                          class="tree-row"
+                          data-tree-name="ipsum getting started"
+                          data-guide="true"
+                        >
+                          <button
+                            class="node"
+                            data-root="Ipsum · Getting started"
+                            aria-pressed="false"
+                          >
+                            Ipsum · Getting started</button
+                          ><button class="open-node" data-open-page="Ipsum · Getting started">
+                            Открыть страницу
+                          </button>
+                        </div>
+                        <div class="tree-row" data-tree-name="dolor reference" data-guide="false">
+                          <button class="node" data-root="Dolor · Reference" aria-pressed="false">
+                            Dolor · Reference</button
+                          ><button class="open-node" data-open-page="Dolor · Reference">
+                            Открыть страницу
+                          </button>
+                        </div>
+                      </div>
+                      <p id="tree-empty" class="hint" hidden>
+                        Нет совпадений. Измените поиск или фильтр.
+                      </p>
+                    </div>
+                    <div class="inline-fields">
+                      <label class="field"
+                        ><span>Максимальная глубина</span
+                        ><select id="depth">
+                          <option>Без ограничения</option>
+                          <option>1 уровень</option>
+                          <option>2 уровня</option>
+                        </select></label
+                      >
+                      <div>
+                        <strong id="tree-count">8 страниц</strong>
+                        <p class="hint">Демонстрационная оценка</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div id="scope-space" hidden>
+                    <label class="field"
+                      ><span>Пространство</span
+                      ><select id="space">
+                        <option>LOR · Lorem Library</option>
+                        <option>IPS · Ipsum Guides</option>
+                      </select></label
+                    ><label class="field" style="margin-top: 12px"
+                      ><span>Метка (необязательно)</span
+                      ><input id="space-label" type="text" placeholder="Например, guide"
+                    /></label>
+                    <p class="hint">
+                      24 страницы · только чтение, без создания или обновления страниц.
+                    </p>
+                  </div>
+                  <div id="scope-fragment" hidden>
+                    <div class="notice">
+                      Выделение доступного HTML-фрагмента на исходной странице. Без editable.md и
+                      без обещания обратимого импорта.
+                    </div>
+                    <button id="picker-demo" style="margin-top: 12px">
+                      Показать выбранный Lorem-фрагмент
+                    </button>
+                    <p id="fragment-result" class="hint">Фрагмент пока не выбран.</p>
+                  </div>
+                  <div id="scope-issue" hidden>
+                    <h3>LOR-12 · Ipsum export example</h3>
+                    <p class="hint">
+                      Описание, поля и доступные ресурсы. Обратимый импорт тела Jira не
+                      поддерживается.
+                    </p>
+                  </div>
+                  <div id="scope-search" hidden>
+                    <label class="field"
+                      ><span>JQL</span
+                      ><textarea id="jql" rows="2" spellcheck="false">
+project = LOR ORDER BY key ASC</textarea
+                      >
+                    </label>
+                    <p class="hint">
+                      3 задачи · общий issues/index.md, JSON и CSV. Текущий предел — 50 задач.
+                    </p>
+                  </div>
+                </section>
+                <section class="card">
+                  <div class="step">
+                    <span>2</span>
+                    <h2>Состав пакета</h2>
+                  </div>
+                  <label class="field"
+                    ><span>Шаблон</span
+                    ><select id="preset">
+                      <option value="md-attachments">Markdown с ресурсами</option>
+                      <option value="md-only">Только Markdown</option>
+                      <option value="tables-only">Только таблицы → CSV</option>
+                    </select></label
+                  >
+                  <p id="preset-hint" class="hint"></p>
+                  <div class="check-grid" id="package-options">
+                    <label class="check"
+                      ><input id="opt-editable" type="checkbox" checked /> editable.md</label
+                    >
+                    <label class="check"
+                      ><input id="opt-images" type="checkbox" checked /> Изображения</label
+                    >
+                    <label class="check"
+                      ><input id="opt-attachments" type="checkbox" checked /> Вложения</label
+                    >
+                    <label class="check"
+                      ><input id="opt-plantuml" type="checkbox" checked /> PlantUML: PNG +
+                      исходник</label
+                    >
+                    <label class="check"
+                      ><input id="opt-comments" type="checkbox" /> Комментарии</label
+                    >
+                    <label class="check"
+                      ><input id="opt-history" type="checkbox" /> История версий</label
+                    >
+                  </div>
+                  <p id="editable-hint" class="hint">
+                    editable.md — sidecar одной Confluence-страницы. Даже в массовом экспорте каждый
+                    файл применяется только к своему открытому редактору.
+                  </p>
+                  <details style="margin-top: 12px">
+                    <summary>Преобразование и правила</summary>
+                    <div class="stack" style="margin-top: 8px">
+                      <label class="check"
+                        ><input id="opt-frontmatter" type="checkbox" checked /> Front matter</label
+                      ><label class="check"
+                        ><input id="opt-links" type="checkbox" checked /> Локальные ссылки на
+                        записанные страницы</label
+                      ><label class="check"
+                        ><input id="opt-dedup" type="checkbox" checked /> Дедупликация
+                        ресурсов</label
+                      >
+                      <p class="hint">
+                        Базовые правила шаблона + 0 пользовательских правил. Редактор и JSON
+                        import/export находятся в настройках.
+                      </p>
+                    </div>
+                  </details>
+                  <hr class="divider" />
+                  <div class="row between">
+                    <small>Изменения относятся только к этому запуску.</small
+                    ><button id="save-defaults">Сохранить как значения по умолчанию</button>
+                  </div>
+                </section>
+                <section class="card">
+                  <div class="step">
+                    <span>3</span>
+                    <h2>Куда сохранить</h2>
+                  </div>
+                  <div class="stack" id="destinations">
+                    <label class="choice"
+                      ><input type="radio" name="destination" value="download-zip" checked /><span
+                        ><strong>Скачать ZIP</strong
+                        ><small
+                          >Диалог браузера после упаковки. Готово — после завершения
+                          загрузки.</small
+                        ></span
+                      ></label
+                    >
+                    <label class="choice"
+                      ><input type="radio" name="destination" value="directory" /><span
+                        ><strong>Новая папка</strong
+                        ><small
+                          >Выбрать родительскую папку перед запуском. Новый каталог, без перезаписи
+                          существующих файлов.</small
+                        ></span
+                      ></label
+                    >
+                    <label class="choice"
+                      ><input type="radio" name="destination" value="streamed-zip" /><span
+                        ><strong>ZIP непосредственно на диск</strong
+                        ><small
+                          >Выбрать .zip перед запуском. Запись по мере экспорта; готово только после
+                          закрытия файла.</small
+                        ></span
+                      ></label
+                    >
+                  </div>
+                  <div id="destination-note" class="notice" style="margin-top: 12px"></div>
+                </section>
+              </div>
+              <aside class="summary card" aria-label="Итоговая сводка">
+                <h2>Готово к подготовке</h2>
+                <p class="hint">Проверьте параметры перед запуском</p>
+                <dl>
+                  <div>
+                    <dt>Источник</dt>
+                    <dd id="summary-source">Lorem Handbook</dd>
+                  </div>
+                  <div>
+                    <dt>Область</dt>
+                    <dd id="summary-scope">Одна страница</dd>
+                  </div>
+                  <div>
+                    <dt>Состав</dt>
+                    <dd id="summary-package"></dd>
+                  </div>
+                  <div>
+                    <dt>Назначение</dt>
+                    <dd id="summary-destination">Скачать ZIP</dd>
+                  </div>
+                </dl>
+                <div class="file-list" id="file-preview" aria-label="Пример состава"></div>
+                <p class="hint">Пример путей, не созданные файлы.</p>
+                <button id="start-export" class="primary" style="margin-top: 16px">
+                  Показать запуск экспорта
+                </button>
+                <p id="start-hint" class="hint">Демо: реальный архив не создаётся.</p>
+              </aside>
+            </div>
+          </section>
+          <section id="section-edit" hidden aria-label="Обновление страницы">
+            <div class="workspace">
+              <div class="card stack">
+                <div>
+                  <h2>Обновить открытый редактор</h2>
+                  <p class="hint">
+                    Только Confluence · одна страница · без автоматической публикации
+                  </p>
+                </div>
+                <div id="edit-unavailable" class="notice" hidden>
+                  Обратимое обновление доступно только для полной страницы Confluence. Для Jira и
+                  HTML-фрагментов остаётся экспорт.
+                </div>
+                <div id="edit-flow" class="stack">
+                  <ol class="muted" style="padding-left: 20px; margin: 0">
+                    <li>Экспортируйте editable.md этой страницы.</li>
+                    <li>Измените файл локально и откройте редактор Confluence.</li>
+                    <li>Загрузите файл, проверьте diff и подтвердите применение.</li>
+                  </ol>
+                  <div class="dropzone" id="dropzone">
+                    <strong>Перетащите editable.md сюда</strong>
+                    <p class="hint">
+                      В прототипе drop не читает файл: используется синтетический Lorem-пример.
+                    </p>
+                    <div class="row">
+                      <button id="load-demo">Выбрать демо-файл</button
+                      ><button id="edit-in-tab">Выбрать файл во вкладке</button>
+                    </div>
+                    <p class="hint">Реальный file picker здесь не вызывается.</p>
+                  </div>
+                  <div id="edit-result" hidden class="stack">
+                    <div>
+                      <strong>editable.md</strong>
+                      <p class="hint">LOR / 1001 · исходная версия 7 · Lorem Handbook</p>
+                    </div>
+                    <div id="edit-message" class="notice" role="status"></div>
+                    <div
+                      id="edit-diff"
+                      class="diff"
+                      role="region"
+                      tabindex="0"
+                      aria-label="Различия файла"
+                    >
+                      <span>@@ Lorem Handbook / Introduction @@</span
+                      ><del>− Lorem ipsum dolor sit amet.</del
+                      ><ins>+ Lorem ipsum dolor sit amet, consectetur adipiscing elit.</ins>
+                    </div>
+                    <label class="check" id="confirm-label"
+                      ><input id="edit-confirm" type="checkbox" /> Подтверждаю изменение только
+                      открытого редактора Lorem Handbook</label
+                    >
+                    <button id="apply-edit" class="primary" disabled>
+                      Показать применение к редактору
+                    </button>
+                    <p class="hint">
+                      Перед применением повторно проверяются страница, версия и исходное содержимое.
+                      «Опубликовать» в Confluence нажимаете только вы.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <aside class="card">
+                <h3>Граница безопасности</h3>
+                <p class="hint">
+                  Нет массового применения editable.md, создания страниц или REST-публикации.
+                </p>
+                <hr class="divider" />
+                <h3>Файл не выбирается в Web Panel?</h3>
+                <p class="hint">
+                  Откройте обычную вкладку расширения. Выберите файл уже там; diff и применение
+                  останутся в этой же вкладке.
+                </p>
+              </aside>
+            </div>
+          </section>
+          <section id="section-watch" hidden aria-label="Наблюдение">
+            <div class="card">
+              <div class="row between">
+                <div>
+                  <h2>Наблюдение</h2>
+                  <p class="hint">Read-only снимки и сравнение. Публикация не выполняется.</p>
+                </div>
+                <button id="watch-check">Показать проверку</button>
+              </div>
+              <div class="watch-row" style="margin-top: 16px">
+                <div>
+                  <strong>Lorem Handbook</strong>
+                  <p class="hint">Поддерево · 8 страниц · источник lorem.example</p>
+                </div>
+                <span class="badge" id="watch-status">2 изменения в демо-снимке</span>
+              </div>
+              <details>
+                <summary>Показать различия</summary>
+                <div tabindex="0" role="region" aria-label="Различия снимков" class="notice">
+                  <p>Ipsum · Getting started: версия 3 → 4</p>
+                  <p>Dolor · Reference: добавлена таблица Lorem</p>
+                </div>
+                <button id="watch-export" style="margin-top: 12px">
+                  Подготовить экспорт изменений
+                </button>
+              </details>
+            </div>
+          </section>
+        </main>
+      </div>
+      <section id="settings-surface" hidden aria-label="Настройки расширения">
+        <div class="row between" style="margin: 20px 0">
+          <div>
+            <h2 tabindex="-1" id="settings-title">Настройки расширения</h2>
+            <p class="hint">Макет отдельной options page. Не четвёртый рабочий раздел.</p>
+          </div>
+          <button id="settings-back">Вернуться к работе</button>
+        </div>
+        <div class="settings-grid">
+          <nav class="settings-nav" aria-label="Разделы настроек">
+            <a href="#defaults-settings">Экспорт</a><a href="#appearance-settings">Внешний вид</a
+            ><a href="#launcher-settings">Launcher</a><a href="#advanced-settings">Advanced</a
+            ><a href="#diagnostics-settings">Диагностика</a>
+          </nav>
+          <div>
+            <section class="card settings-section" id="defaults-settings">
+              <h2>Значения по умолчанию</h2>
+              <label class="field"
+                ><span>Шаблон новых запусков</span
+                ><select id="default-preset">
+                  <option value="md-attachments">Markdown с ресурсами</option>
+                  <option value="md-only">Только Markdown</option>
+                  <option value="tables-only">Только таблицы → CSV</option>
+                </select></label
+              >
+              <p id="defaults-description" class="hint">
+                editable.md, изображения, вложения и PlantUML включены; комментарии и история
+                выключены.
+              </p>
+              <p class="hint">Текущий draft и уже запущенное задание не меняются.</p>
+              <button id="defaults-use" style="margin-top: 12px">
+                Применить defaults к текущему draft
+              </button>
+            </section>
+            <section class="card settings-section" id="appearance-settings">
+              <h2>Внешний вид и язык</h2>
+              <div class="inline-fields">
+                <label class="field"
+                  ><span>Тема</span
+                  ><select id="theme">
+                    <option value="light">Светлая</option>
+                    <option value="dark">Тёмная</option>
+                    <option value="system">Системная</option>
+                  </select></label
+                ><label class="field"
+                  ><span>Язык интерфейса</span
+                  ><select id="language">
+                    <option>Русский</option>
+                    <option>English</option>
+                  </select></label
+                >
+              </div>
+              <p class="hint">
+                Локализация в этом прототипе не реализуется; переключатель языка демонстрирует
+                настройку.
+              </p>
+            </section>
+            <section class="card settings-section" id="launcher-settings">
+              <h2>Launcher на страницах</h2>
+              <label class="check"
+                ><input id="show-confluence" type="checkbox" checked /> Показывать в
+                Confluence</label
+              ><label class="check"
+                ><input id="show-jira" type="checkbox" checked /> Показывать в Jira</label
+              >
+              <p class="hint">
+                Перетащите кнопку к краю. Enter — открыть, Shift+F10 — меню, Esc — закрыть меню.
+                Порог drag — 6 px.
+              </p>
+              <div class="launcher-stage" id="launcher-stage" style="margin-top: 12px">
+                <strong>Lorem · исходная страница</strong>
+                <p class="hint">Отдельная область демо launcher</p>
+                <button
+                  id="launcher"
+                  class="launcher"
+                  aria-label="Открыть Confx"
+                  aria-haspopup="menu"
+                  aria-expanded="false"
+                >
+                  c↗
+                </button>
+                <div id="launcher-menu" class="launcher-menu" role="menu" hidden>
+                  <button role="menuitem" id="hide-session">Скрыть до перезагрузки вкладки</button
+                  ><button role="menuitem" id="hide-site">Скрыть на этом сайте</button
+                  ><button role="menuitem" id="reset-position">Сбросить позицию</button>
+                </div>
+              </div>
+              <div class="row between" style="margin-top: 12px">
+                <div>
+                  <strong>lorem.example · Confluence</strong>
+                  <p id="launcher-status" class="hint">Видим · правый край</p>
+                </div>
+                <button id="restore-launcher">Восстановить / сбросить</button>
+              </div>
+              <p class="hint">
+                В продукте site overrides хранятся локально, не в sync. Toolbar остаётся доступным
+                при скрытом launcher.
+              </p>
+            </section>
+            <section class="card settings-section" id="advanced-settings">
+              <details>
+                <summary>Advanced · сеть и правила</summary>
+                <div class="stack" style="margin-top: 12px">
+                  <label class="field"
+                    ><span>Confluence base override (same-origin)</span
+                    ><input id="base-override" type="text" placeholder="https://lorem.example/wiki"
+                  /></label>
+                  <p class="hint">
+                    Другой origin или несовпадающий path не применяется; источник не
+                    перенаправляется.
+                  </p>
+                  <div class="inline-fields">
+                    <label class="field"
+                      ><span>HTTP concurrency</span
+                      ><input type="number" min="1" max="8" value="4" /></label
+                    ><label class="field"
+                      ><span>Discovery concurrency</span
+                      ><input type="number" min="1" max="8" value="2"
+                    /></label>
+                  </div>
+                  <h3>Правила</h3>
+                  <p class="hint">
+                    0 пользовательских правил · базовые правила сохраняются отдельно.
+                  </p>
+                  <div class="row">
+                    <button data-demo-message="Демо: здесь откроется редактор правил.">
+                      Редактор правил</button
+                    ><button data-demo-message="Демо: JSON не читается и не записывается.">
+                      Импорт JSON</button
+                    ><button data-demo-message="Демо: JSON не читается и не записывается.">
+                      Экспорт JSON
+                    </button>
+                  </div>
+                </div>
+              </details>
+            </section>
+            <section class="card settings-section" id="diagnostics-settings">
+              <h2>Диагностика</h2>
+              <p class="hint">
+                Состав: версия Confx, возможности browser API, тип поверхности, коды ошибок. Без
+                page bodies, файлов, секретов и рабочих URL.
+              </p>
+              <button id="diagnostics" style="margin-top: 12px">Показать состав отчёта</button>
+              <pre id="diagnostics-preview" class="diff" hidden>
+confx: R2 prototype\nsurface: workspace\nnetwork: disabled\npageBodies: excluded\nsecrets: excluded</pre
+              >
+            </section>
+          </div>
+        </div>
+      </section>
+      <footer class="footer">
+        R2 / review 01 · синтетический каталог Lorem · прототип не входит в сборку расширения
+      </footer>
+    </div>
+    <div id="toast" class="toast" role="status" hidden></div>
+    <script>
+      "use strict";
+      const $ = (id) => document.getElementById(id);
+      const all = (selector) => [...document.querySelectorAll(selector)];
+      const scopes = {
+        confluence: [
+          ["page", "Страница"],
+          ["subtree", "Поддерево"],
+          ["space", "Пространство"],
+          ["fragment", "Фрагмент"],
+        ],
+        jira: [
+          ["issue", "Задача"],
+          ["search", "Поиск"],
+          ["fragment", "Фрагмент"],
+        ],
+        other: [["fragment", "Фрагмент"]],
+      };
+      const scopeNames = {
+        page: "Одна страница",
+        subtree: "Поддерево",
+        space: "Пространство",
+        fragment: "HTML-фрагмент",
+        issue: "Одна задача",
+        search: "Поиск Jira",
+      };
+      const destinationNames = {
+        "download-zip": "Скачать ZIP",
+        directory: "Новая папка",
+        "streamed-zip": "ZIP непосредственно на диск",
+      };
+      const packageKeys = ["editable", "images", "attachments", "plantuml", "comments", "history"];
+      const drafts = new Map();
+      const state = {
+        section: "export",
+        product: "confluence",
+        scope: "page",
+        root: "Lorem Handbook",
+        job: "idle",
+        jobSource: null,
+        editLoaded: false,
+        editApplied: false,
+        fragment: false,
+        defaultPackage: null,
+        hiddenLauncher: false,
+        launcherEdge: "right",
+        launcherRatio: 0.62,
+      };
+      let toastTimer;
+      function toast(message) {
+        $("toast").textContent = message;
+        $("toast").hidden = false;
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+          $("toast").hidden = true;
+        }, 4500);
+      }
+      function section(name) {
+        state.section = name;
+        for (const item of ["export", "edit", "watch"]) $("section-" + item).hidden = item !== name;
+        all("[data-section]").forEach((button) =>
+          button.setAttribute("aria-current", button.dataset.section === name ? "page" : "false"),
+        );
+      }
+      function isRunning() {
+        return ["running", "downloading"].includes(state.job);
+      }
+      function destination() {
+        return document.querySelector("[name=destination]:checked").value;
+      }
+      function captureDraft() {
+        const inputs = all(
+          "#section-export input, #section-export select, #section-export textarea",
+        );
+        return {
+          scope: state.scope,
+          root: state.root,
+          section: state.section,
+          fragment: state.fragment,
+          expanded: $("tree-expand").getAttribute("aria-expanded"),
+          fields: inputs.map((input) => ({
+            id: input.id,
+            value: input.value,
+            checked:
+              input.dataset.requested === undefined
+                ? input.checked
+                : input.dataset.requested === "true",
+            type: input.type,
+          })),
+        };
+      }
+      function restoreDraft(draft) {
+        state.scope = draft?.scope || scopes[state.product][0][0];
+        state.root = draft?.root || "Lorem Handbook";
+        state.fragment = draft?.fragment || false;
+        if (draft)
+          for (const field of draft.fields) {
+            const input = field.id
+              ? $(field.id)
+              : document.querySelector(`[name=destination][value="${field.value}"]`);
+            if (input) {
+              input.value = field.value;
+              input.checked = field.checked;
+              if (input.type === "checkbox") input.dataset.requested = String(field.checked);
+            }
+          }
+        else {
+          $("preset").value = "md-attachments";
+          applyPreset();
+        }
+        $("tree-expand").setAttribute("aria-expanded", draft?.expanded || "true");
+        $("tree-children").hidden = draft?.expanded === "false";
+        $("tree-expand").textContent = draft?.expanded === "false" ? "+" : "−";
+        $("tree-expand").setAttribute(
+          "aria-label",
+          draft?.expanded === "false" ? "Раскрыть Lorem Handbook" : "Свернуть Lorem Handbook",
+        );
+        section(draft?.section || "export");
+      }
+      function renderScope() {
+        const focusedScope = document.activeElement?.dataset.scope;
+        $("scopes").replaceChildren(
+          ...scopes[state.product].map(([value, label]) => {
+            const button = document.createElement("button");
+            button.textContent = label;
+            button.dataset.scope = value;
+            button.setAttribute("aria-pressed", String(state.scope === value));
+            button.disabled = isRunning();
+            button.addEventListener("click", () => {
+              state.scope = value;
+              render();
+            });
+            return button;
+          }),
+        );
+        if (focusedScope)
+          document.querySelector(`[data-scope="${focusedScope}"]`)?.focus({ preventScroll: true });
+        $("fragment-result").textContent = state.fragment
+          ? "Выбран Lorem-фрагмент: 1 таблица и 2 абзаца (демо)."
+          : "Фрагмент пока не выбран.";
+        for (const key of Object.keys(scopeNames)) $("scope-" + key).hidden = key !== state.scope;
+        $("root-label").textContent = state.root;
+        all("[data-root]").forEach((button) =>
+          button.setAttribute("aria-pressed", String(button.dataset.root === state.root)),
+        );
+        $("tree-count").textContent =
+          state.root === "Lorem Handbook"
+            ? $("tree-filter").checked
+              ? "5 страниц"
+              : "8 страниц"
+            : "3 страницы";
+      }
+      function applyPreset() {
+        const preset = $("preset").value;
+        for (const key of packageKeys) {
+          const input = $("opt-" + key);
+          input.checked = preset === "md-attachments" && !["comments", "history"].includes(key);
+          input.dataset.requested = String(input.checked);
+        }
+      }
+      function renderPackage() {
+        const tables = $("preset").value === "tables-only";
+        const mdOnly = $("preset").value === "md-only";
+        $("preset-hint").textContent = tables
+          ? "Только CSV + служебный index.md каждой страницы. Ресурсы, sidecar, комментарии и история несовместимы с этим шаблоном."
+          : mdOnly
+            ? "Markdown без ресурсов. editable.md, комментарии и история доступны как отдельные параметры."
+            : "Markdown с разрешёнными изображениями и файлами. Ниже — эффективные параметры текущего запуска.";
+        for (const key of packageKeys) {
+          const incompatible =
+            tables ||
+            (mdOnly && ["images", "attachments", "plantuml"].includes(key)) ||
+            (key === "editable" && (state.product !== "confluence" || state.scope === "fragment"));
+          const input = $("opt-" + key);
+          input.dataset.requested ??= String(input.checked);
+          input.checked = !incompatible && input.dataset.requested === "true";
+          input.disabled = incompatible || isRunning();
+          input.closest("label").title = incompatible
+            ? "Недоступно для выбранного шаблона или источника"
+            : "";
+        }
+        $("editable-hint").textContent =
+          state.product !== "confluence" || state.scope === "fragment"
+            ? "editable.md недоступен: нужен экспорт полной страницы Confluence. Jira и HTML-фрагмент не имеют обратимого импорта."
+            : "editable.md — sidecar одной Confluence-страницы. Даже в массовом экспорте каждый файл применяется только к своему открытому редактору.";
+      }
+      function enabledOption(key) {
+        const tables = $("preset").value === "tables-only";
+        const mdOnly = $("preset").value === "md-only";
+        return (
+          !tables &&
+          !(mdOnly && ["images", "attachments", "plantuml"].includes(key)) &&
+          !(key === "editable" && (state.product !== "confluence" || state.scope === "fragment")) &&
+          $("opt-" + key).checked
+        );
+      }
+      function renderDestination() {
+        const unsupported = $("filesystem").value === "unsupported";
+        const panel = $("surface").value === "panel";
+        all("[name=destination]").forEach((input) => {
+          input.disabled = isRunning() || (unsupported && input.value !== "download-zip");
+        });
+        const disk = destination() !== "download-zip";
+        const multi = ["subtree", "space", "search"].includes(state.scope);
+        const mustOpen = panel && (disk || multi);
+        $("destination-note").textContent =
+          unsupported && disk
+            ? "Это назначение недоступно: browser API или policy запрещает доступ. Явно выберите «Скачать ZIP»; автоматической подмены нет."
+            : mustOpen
+              ? "Нужна обычная рабочая вкладка. Источник и draft будут закреплены; запуск не начинается внутри panel."
+              : disk
+                ? "В продукте выбор места — первым действием по нажатию, до чтения страниц. Отмена диалога не создаёт задание. В прототипе диалога нет."
+                : "ZIP хранится в памяти до передачи браузеру. Отмена после передачи запросит отмену загрузки; диалог сохранения может потребоваться закрыть вручную.";
+        $("summary-destination").textContent = destinationNames[destination()];
+        const blocked =
+          $("access").value !== "ready" ||
+          (unsupported && disk) ||
+          (state.scope === "fragment" && !state.fragment);
+        $("start-export").disabled = blocked || isRunning();
+        $("start-export").textContent = mustOpen
+          ? "Продолжить в рабочей вкладке"
+          : disk
+            ? "Показать выбор места и запуск"
+            : "Показать запуск экспорта";
+        $("start-hint").textContent = isRunning()
+          ? "Источник и параметры зафиксированы до окончания задания."
+          : blocked
+            ? "Для запуска нужен доступный источник, выбранный фрагмент и поддерживаемое назначение."
+            : "Демо: файлы и архив не создаются.";
+      }
+      function renderSummary() {
+        const tables = $("preset").value === "tables-only";
+        const names = {
+          editable: "editable.md",
+          images: "изображения",
+          attachments: "вложения",
+          plantuml: "PlantUML",
+          comments: "комментарии",
+          history: "история",
+        };
+        const extras = packageKeys.filter(enabledOption).map((key) => names[key]);
+        $("summary-source").textContent =
+          state.scope === "subtree"
+            ? state.root
+            : state.product === "confluence"
+              ? "Lorem Handbook"
+              : state.product === "jira"
+                ? "LOR-12 · Ipsum"
+                : "Lorem article";
+        $("summary-scope").textContent = scopeNames[state.scope];
+        $("summary-package").textContent = tables
+          ? "CSV + index.md (список CSV)"
+          : ["Markdown", ...extras].join(" · ");
+        const paths = [
+          "lorem-export/",
+          "  manifest.json",
+          "  lorem-handbook/",
+          "    index.md" + (tables ? "  ← список CSV" : ""),
+        ];
+        if (tables) paths.push("    table-01.csv");
+        if (enabledOption("editable")) paths.push("    editable.md");
+        if (enabledOption("images") || enabledOption("attachments") || enabledOption("plantuml"))
+          paths.push("    assets/…");
+        if (state.product === "jira")
+          paths.splice(
+            2,
+            paths.length,
+            "  issues/index.md",
+            "  issues.json",
+            "  issues.csv",
+            ...(enabledOption("attachments") ? ["  attachments/…"] : []),
+          );
+        if (state.product === "other") paths.splice(2, paths.length, "  fragment/index.md");
+        $("file-preview").style.whiteSpace = "pre-wrap";
+        $("file-preview").textContent = paths.join("\n");
+      }
+      const jobs = {
+        running: [
+          "Экспорт выполняется",
+          "Чтение Ipsum · Getting started. Параметры зафиксированы; разделы можно переключать.",
+          "3 / 8 страниц · 12 файлов · 428 КБ записано",
+          3,
+        ],
+        partial: [
+          "Готово с пропусками ресурсов",
+          "8 страниц записаны. 1 изображение недоступно: в Markdown оставлена online-ссылка. Пакет допустим, но не полностью офлайн.",
+          "8 / 8 страниц · ресурсы: 11 успешно, 1 ошибка",
+          8,
+        ],
+        completed: [
+          "Экспорт завершён",
+          "Все файлы записаны. ZIP: загрузка браузера завершена; disk modes: writable закрыт.",
+          "8 / 8 страниц · 24 файла · 1,2 МБ",
+          8,
+        ],
+        cancelled: [
+          "Экспорт отменён",
+          "Новые файлы не создаются. Закрытые файлы directory остаются с marker cancelled. Незавершённый ZIP не выдаётся за готовый.",
+          "3 / 8 страниц · не завершён",
+          3,
+        ],
+        interrupted: [
+          "Задание прервано",
+          "Вкладка-владелец закрыта. Снимок не даёт продолжить или отменить задачу. Можно начать новый экспорт.",
+          "Последний снимок: 3 / 8 страниц",
+          3,
+        ],
+        permission: [
+          "Доступ к назначению запрещён",
+          "Разрешение на запись не получено. Экспорт не запущен; выберите другое назначение явно.",
+          "0 файлов",
+          0,
+        ],
+        failed: [
+          "Ошибка записи · результат не готов",
+          "ZIP не финализирован. В directory остаются ранее записанные файлы и marker partial с причиной ошибки.",
+          "3 / 8 страниц · writer failure",
+          3,
+        ],
+        downloading: [
+          "ZIP передан браузеру",
+          "Ожидание завершения загрузки или диалога сохранения. Это ещё не завершённый экспорт.",
+          "8 / 8 страниц · ожидание download complete",
+          8,
+        ],
+      };
+      function setJob(value) {
+        if (value !== "idle" && !isRunning()) {
+          state.jobSource = `${$("source-product").textContent} · ${$("summary-source").textContent} · ${scopeNames[state.scope]}`;
+        }
+        state.job = value;
+        $("job-scenario").value = value;
+        render();
+      }
+      function renderJob() {
+        $("job").hidden = state.job === "idle";
+        if (state.job === "idle") return;
+        const [title, detail, counts, progress] = jobs[state.job];
+        const other = $("owner").value === "other" && isRunning();
+        $("job-title").textContent = title;
+        $("job-detail").textContent =
+          state.jobSource +
+          ". " +
+          (other
+            ? "Read-only снимок. Владелец — другая рабочая вкладка; отмена доступна там."
+            : detail);
+        $("job-counts").textContent = counts;
+        $("job-progress").value = progress;
+        $("job-action").textContent = other
+          ? "Перейти к заданию"
+          : isRunning()
+            ? "Отменить"
+            : "Закрыть статус";
+      }
+      function render() {
+        const product = state.product;
+        $("source-product").textContent =
+          product === "confluence" ? "Confluence" : product === "jira" ? "Jira" : "Доступный HTML";
+        $("source-title").textContent =
+          product === "confluence"
+            ? "Lorem Handbook"
+            : product === "jira"
+              ? "LOR-12 · Ipsum export example"
+              : "Lorem article";
+        $("source-url").textContent =
+          product === "confluence"
+            ? "lorem.example / wiki / spaces / LOR / pages / 1001"
+            : product === "jira"
+              ? "jira.example / browse / LOR-12"
+              : "example.org / lorem";
+        $("surface-label").textContent =
+          $("surface").value === "panel" ? "Panel / Web Panel" : "Рабочая вкладка";
+        const access = $("access").value;
+        $("access-label").textContent =
+          access === "ready"
+            ? "Доступ разрешён"
+            : access === "lost"
+              ? "Источник потерян"
+              : "Нет разрешения";
+        $("source-warning").hidden = access === "ready";
+        $("source-warning").textContent =
+          access === "lost"
+            ? "Исходная вкладка закрыта. Draft сохранён, но экспорт и применение недоступны. Выберите источник явно; другая вкладка не подставляется автоматически."
+            : "Нет разрешения на чтение источника. В продукте доступ запрашивается явным действием пользователя; выбранная область не сбрасывается.";
+        renderScope();
+        renderPackage();
+        renderDestination();
+        renderSummary();
+        renderJob();
+        all(
+          "#section-export input:not([name=destination]), #section-export select, #section-export textarea",
+        ).forEach((input) => {
+          if (!input.id.startsWith("opt-")) input.disabled = isRunning();
+        });
+        for (const key of ["frontmatter", "links", "dedup"]) $("opt-" + key).disabled = isRunning();
+        all("[data-root], [data-open-page], #tree-expand, #picker-demo, #save-defaults").forEach(
+          (button) => {
+            button.disabled = isRunning();
+          },
+        );
+        $("edit-unavailable").hidden = product === "confluence";
+        $("edit-flow").hidden = product !== "confluence";
+        renderEdit();
+      }
+      const editMessages = {
+        ready:
+          "Проверки пройдены: страница 1001, версия 7, исходное содержимое совпадает. 1 изменённый абзац.",
+        unchanged: "Изменений нет. Содержимое совпадает с исходным; применять нечего.",
+        wrong:
+          "Другая страница: файл относится к 1002, открыт редактор 1001. Применение запрещено; откройте правильный редактор и выберите файл заново.",
+        conflict:
+          "Конфликт: опубликованная версия стала 8 или редактор изменён после экспорта. Применение запрещено; экспортируйте актуальную страницу и сравните изменения.",
+        malformed:
+          "Неверный файл: не найден корректный roundtrip marker. Нужен исходный editable.md, не обычный index.md.",
+        loss: "Потери преобразования: неподдерживаемый макрос не может быть восстановлен. Применение заблокировано; проверьте исходник, не заменяйте содержимое вслепую.",
+      };
+      function renderEdit() {
+        const scenario = $("edit-scenario").value;
+        $("edit-result").hidden = !state.editLoaded;
+        $("edit-message").textContent = state.editApplied
+          ? "Демо: изменён только открытый редактор. Опубликованная версия не менялась. Публикацию выполняет пользователь."
+          : editMessages[scenario];
+        const valid = scenario === "ready" && !state.editApplied;
+        $("edit-diff").hidden =
+          !["ready", "conflict", "loss"].includes(scenario) || state.editApplied;
+        $("confirm-label").hidden = !valid;
+        $("apply-edit").hidden = !valid;
+        $("apply-edit").disabled =
+          !valid || !$("edit-confirm").checked || $("access").value !== "ready";
+      }
+      function loadDemo() {
+        state.editLoaded = true;
+        state.editApplied = false;
+        $("edit-confirm").checked = false;
+        renderEdit();
+      }
+      function filterTree() {
+        const search = $("tree-search").value.toLowerCase();
+        const guideOnly = $("tree-filter").checked;
+        all("[data-tree-name]").forEach((row) => {
+          row.hidden =
+            !row.dataset.treeName.includes(search) || (guideOnly && row.dataset.guide !== "true");
+        });
+        $("tree-empty").hidden = all("[data-tree-name]").some((row) => !row.hidden);
+        renderScope();
+      }
+      all("[data-section]").forEach((button) =>
+        button.addEventListener("click", () => section(button.dataset.section)),
+      );
+      $("product").addEventListener("change", () => {
+        drafts.set(state.product, captureDraft());
+        state.product = $("product").value;
+        restoreDraft(drafts.get(state.product));
+        state.editLoaded = false;
+        state.editApplied = false;
+        $("edit-confirm").checked = false;
+        filterTree();
+        render();
+      });
+      for (const id of ["surface", "access", "filesystem", "owner"])
+        $(id).addEventListener("change", render);
+      $("job-scenario").addEventListener("change", () => setJob($("job-scenario").value));
+      $("preset").addEventListener("change", () => {
+        applyPreset();
+        render();
+      });
+      all("#package-options input, [id^=opt-], [name=destination]").forEach((input) =>
+        input.addEventListener("change", () => {
+          if (input.type === "checkbox") input.dataset.requested = String(input.checked);
+          render();
+        }),
+      );
+      $("tree-search").addEventListener("input", filterTree);
+      $("tree-filter").addEventListener("change", filterTree);
+      $("tree-expand").addEventListener("click", () => {
+        const expanded = $("tree-expand").getAttribute("aria-expanded") !== "true";
+        $("tree-expand").setAttribute("aria-expanded", String(expanded));
+        $("tree-expand").setAttribute(
+          "aria-label",
+          expanded ? "Свернуть Lorem Handbook" : "Раскрыть Lorem Handbook",
+        );
+        $("tree-expand").textContent = expanded ? "−" : "+";
+        $("tree-children").hidden = !expanded;
+      });
+      all("[data-root]").forEach((button) =>
+        button.addEventListener("click", () => {
+          state.root = button.dataset.root;
+          render();
+        }),
+      );
+      all("[data-open-page]").forEach((button) =>
+        button.addEventListener("click", () =>
+          toast(
+            "Демо: отдельное открытие «" +
+              button.dataset.openPage +
+              "». Корень экспорта не изменён.",
+          ),
+        ),
+      );
+      $("picker-demo").addEventListener("click", () => {
+        state.fragment = true;
+        render();
+      });
+      function openWorkspace(tool) {
+        $("surface").value = "workspace";
+        $("settings-surface").hidden = true;
+        $("work-surface").hidden = false;
+        if (tool) section(tool);
+        render();
+        toast(
+          "Демо: обычная extension tab с тем же источником и draft. Новая вкладка реально не создаётся.",
+        );
+      }
+      $("workspace-open").addEventListener("click", () => openWorkspace());
+      $("edit-in-tab").addEventListener("click", () => {
+        openWorkspace("edit");
+        toast(
+          "Демо: теперь рабочая вкладка. Нажмите «Выбрать демо-файл» здесь; picker не открывается автоматически.",
+        );
+      });
+      $("start-export").addEventListener("click", () => {
+        if (
+          $("surface").value === "panel" &&
+          (destination() !== "download-zip" || ["subtree", "space", "search"].includes(state.scope))
+        ) {
+          openWorkspace("export");
+          return;
+        }
+        setJob("running");
+        toast(
+          "Демонстрационное задание: сетевых запросов и записи нет. Другие результаты доступны в сценариях сверху.",
+        );
+      });
+      $("job-action").addEventListener("click", () => {
+        if ($("owner").value === "other" && isRunning()) {
+          toast(
+            "Демо: переход к owning surface. Эта поверхность не получает управление её задачей.",
+          );
+          return;
+        }
+        if (state.job === "downloading") {
+          toast(
+            "Демо: отмена запрошена. Закройте диалог сохранения, если он открыт; мгновенное закрытие не гарантируется.",
+          );
+          setJob("cancelled");
+        } else setJob(isRunning() ? "cancelled" : "idle");
+      });
+      $("settings-open").addEventListener("click", () => {
+        $("work-surface").hidden = true;
+        $("settings-surface").hidden = false;
+        $("settings-title").focus();
+      });
+      $("settings-back").addEventListener("click", () => {
+        $("settings-surface").hidden = true;
+        $("work-surface").hidden = false;
+        document.querySelector(`[data-section="${state.section}"]`).focus();
+      });
+      $("save-defaults").addEventListener("click", () => {
+        $("default-preset").value = $("preset").value;
+        state.defaultPackage = Object.fromEntries(
+          packageKeys.map((key) => [key, enabledOption(key)]),
+        );
+        $("defaults-description").textContent =
+          "Сохранён состав текущего draft: " +
+          $("summary-package").textContent +
+          ". Только в памяти прототипа.";
+        toast("Демо: defaults сохранены явно. Файлы и browser storage не менялись.");
+      });
+      $("default-preset").addEventListener("change", () => {
+        state.defaultPackage = null;
+        $("defaults-description").textContent =
+          "Defaults новых запусков: " +
+          $("default-preset").selectedOptions[0].textContent +
+          ". Текущий draft и задание не изменены.";
+      });
+      $("defaults-use").addEventListener("click", () => {
+        if (isRunning()) {
+          toast("Параметры текущего задания заблокированы. Дождитесь завершения или отмените его.");
+          return;
+        }
+        $("preset").value = $("default-preset").value;
+        applyPreset();
+        if (state.defaultPackage)
+          for (const key of packageKeys) {
+            $("opt-" + key).checked = state.defaultPackage[key];
+            $("opt-" + key).dataset.requested = String(state.defaultPackage[key]);
+          }
+        render();
+        toast("Defaults применены к draft. Это отдельное действие, не запуск.");
+      });
+      function setTheme(value) {
+        const dark =
+          value === "dark" ||
+          (value === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.className = dark ? "dark" : "light";
+        $("theme-toggle").textContent = dark ? "Тема: тёмная" : "Тема: светлая";
+      }
+      $("theme").addEventListener("change", () => setTheme($("theme").value));
+      $("theme-toggle").addEventListener("click", () => {
+        $("theme").value = document.documentElement.classList.contains("dark") ? "light" : "dark";
+        setTheme($("theme").value);
+      });
+      $("language").addEventListener("change", () =>
+        toast("Демо: язык выбран. Тексты прототипа остаются на русском."),
+      );
+      $("edit-scenario").addEventListener("change", loadDemo);
+      $("load-demo").addEventListener("click", loadDemo);
+      $("dropzone").addEventListener("dragover", (event) => event.preventDefault());
+      $("dropzone").addEventListener("drop", (event) => {
+        event.preventDefault();
+        loadDemo();
+        toast("Демо: подставлен Lorem-пример, содержимое перетащенного файла не читалось.");
+      });
+      $("edit-confirm").addEventListener("change", renderEdit);
+      $("apply-edit").addEventListener("click", () => {
+        state.editApplied = true;
+        $("edit-confirm").checked = false;
+        renderEdit();
+      });
+      $("watch-check").addEventListener("click", () => {
+        $("watch-status").textContent = "Демо: снимок проверен · 2 изменения";
+      });
+      $("watch-export").addEventListener("click", () => {
+        if (isRunning()) {
+          toast("Сначала завершите текущее задание. Его параметры не изменены.");
+          return;
+        }
+        if (state.product !== "confluence") {
+          toast(
+            "Этот демо-снимок относится к Confluence · Lorem. Выберите соответствующий источник в сценариях.",
+          );
+          return;
+        }
+        state.scope = "subtree";
+        section("export");
+        render();
+      });
+      all("[data-demo-message]").forEach((button) =>
+        button.addEventListener("click", () => toast(button.dataset.demoMessage)),
+      );
+      $("diagnostics").addEventListener("click", () => {
+        $("diagnostics-preview").hidden = !$("diagnostics-preview").hidden;
+      });
+      const launcher = $("launcher");
+      const stage = $("launcher-stage");
+      let pointer = null;
+      let dragged = false;
+      function layoutLauncher() {
+        launcher.hidden = state.hiddenLauncher || !$("show-confluence").checked;
+        launcher.style.left = state.launcherEdge === "left" ? "12px" : "";
+        launcher.style.right = state.launcherEdge === "right" ? "12px" : "";
+        launcher.style.top =
+          Math.round(12 + state.launcherRatio * (stage.clientHeight - 64)) + "px";
+        $("launcher-status").textContent = launcher.hidden
+          ? "Скрыт · доступ через toolbar и настройки сохранён"
+          : "Видим · " + (state.launcherEdge === "left" ? "левый" : "правый") + " край";
+      }
+      function closeLauncherMenu(focus) {
+        $("launcher-menu").hidden = true;
+        launcher.setAttribute("aria-expanded", "false");
+        if (focus && !launcher.hidden) launcher.focus();
+      }
+      function openLauncherMenu() {
+        $("launcher-menu").hidden = false;
+        launcher.setAttribute("aria-expanded", "true");
+        $("hide-session").focus();
+      }
+      launcher.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        pointer = { x: event.clientX, y: event.clientY };
+        dragged = false;
+        launcher.setPointerCapture(event.pointerId);
+      });
+      launcher.addEventListener("pointermove", (event) => {
+        if (!pointer) return;
+        if (Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) < 6 && !dragged)
+          return;
+        dragged = true;
+        const rect = stage.getBoundingClientRect();
+        launcher.style.right = "";
+        launcher.style.left =
+          Math.max(12, Math.min(stage.clientWidth - 52, event.clientX - rect.left - 20)) + "px";
+        launcher.style.top =
+          Math.max(12, Math.min(stage.clientHeight - 52, event.clientY - rect.top - 20)) + "px";
+      });
+      launcher.addEventListener("pointerup", (event) => {
+        if (!pointer) return;
+        if (dragged) {
+          const rect = stage.getBoundingClientRect();
+          state.launcherEdge = event.clientX - rect.left < stage.clientWidth / 2 ? "left" : "right";
+          state.launcherRatio = Math.max(
+            0,
+            Math.min(1, (parseFloat(launcher.style.top) - 12) / (stage.clientHeight - 64)),
+          );
+          layoutLauncher();
+        }
+        pointer = null;
+      });
+      launcher.addEventListener("pointercancel", () => {
+        pointer = null;
+        dragged = false;
+        layoutLauncher();
+      });
+      launcher.addEventListener("click", (event) => {
+        if (dragged) {
+          dragged = false;
+          event.preventDefault();
+          return;
+        }
+        toast("Демо: launcher открывает Confx. Исходная страница не меняется.");
+      });
+      launcher.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        openLauncherMenu();
+      });
+      launcher.addEventListener("keydown", (event) => {
+        if (event.shiftKey && event.key === "F10") {
+          event.preventDefault();
+          openLauncherMenu();
+        }
+      });
+      $("launcher-menu").addEventListener("keydown", (event) => {
+        const items = all("#launcher-menu button");
+        const index = items.indexOf(document.activeElement);
+        if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+          event.preventDefault();
+          const next =
+            event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? items.length - 1
+                : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+          items[next].focus();
+        }
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !$("launcher-menu").hidden) {
+          closeLauncherMenu(true);
+        }
+      });
+      document.addEventListener("click", (event) => {
+        if (
+          !$("launcher-menu").hidden &&
+          !$("launcher-menu").contains(event.target) &&
+          event.target !== launcher
+        )
+          closeLauncherMenu(false);
+      });
+      for (const id of ["hide-session", "hide-site"])
+        $(id).addEventListener("click", () => {
+          state.hiddenLauncher = true;
+          closeLauncherMenu(false);
+          layoutLauncher();
+          $("restore-launcher").focus();
+          toast(
+            id === "hide-site"
+              ? "Демо: скрыт для lorem.example · Confluence. Overrides остаются только в памяти."
+              : "Демо: скрыт до перезагрузки прототипа.",
+          );
+        });
+      function resetLauncher() {
+        state.hiddenLauncher = false;
+        state.launcherEdge = "right";
+        state.launcherRatio = 0.62;
+        $("show-confluence").checked = true;
+        closeLauncherMenu(false);
+        layoutLauncher();
+      }
+      $("reset-position").addEventListener("click", () => {
+        resetLauncher();
+        launcher.focus();
+      });
+      $("restore-launcher").addEventListener("click", resetLauncher);
+      $("show-confluence").addEventListener("change", layoutLauncher);
+      $("show-jira").addEventListener("change", () =>
+        toast("Демо: глобальная видимость Jira изменена; область ниже показывает Confluence."),
+      );
+      new ResizeObserver(layoutLauncher).observe(stage);
+      render();
+      layoutLauncher();
+    </script>
+  </body>
+</html>

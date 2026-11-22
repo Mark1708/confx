@@ -3,6 +3,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { OptionsApp } from "./OptionsApp";
 import { setupStorageSync } from "./storage-sync";
+import "../lib/appearance.css";
 import "../sidepanel/styles.css";
 import "./options.css";
 

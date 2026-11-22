@@ -1,20 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  ALL_TABLES_CSV_PRESET,
-  API_DOC_PRESET,
-  applyRules,
-  DEFAULT_PRESET_ID,
-  exportRules,
-  FULL_PAGE_PRESET,
-  GENERIC_PRESET,
-  getPreset,
-  importRules,
-  MD_ATTACHMENTS_PRESET,
-  MD_ONLY_PRESET,
-  PRESETS,
-  TABLES_ONLY_PRESET,
-} from "../../src/lib/rule-engine";
+import { applyRules, exportRules, getExportTemplate, importRules } from "../../src/lib/rule-engine";
 import type { ExtractionRule } from "../../src/types";
 
 function parseMainHtml(html: string): Document {
@@ -201,7 +187,9 @@ describe("applyRules", () => {
     expect(() =>
       applyRules(html, [makeRule({ type: "section", matcher: "(", action: "to-csv" })]),
     ).not.toThrow();
-    expect(applyRules(html, [makeRule({ type: "section", matcher: "(", action: "to-csv" })])).toEqual({
+    expect(
+      applyRules(html, [makeRule({ type: "section", matcher: "(", action: "to-csv" })]),
+    ).toEqual({
       mainHtml: html,
       tables: [],
     });
@@ -237,6 +225,49 @@ describe("applyRules", () => {
     ]);
   });
 
+  it("extracts every table in a selected wrapper once even when wrappers and table selectors overlap", () => {
+    const html = `
+      <h1>Lorem tables</h1>
+      <section class="target">
+        <div class="target"><table><tr><td>Lorem</td></tr></table></div>
+        <table><tr><td>Ipsum</td></tr></table>
+      </section>
+    `;
+
+    const result = applyRules(html, [
+      makeRule({ id: "wrappers", action: "to-csv", matcher: ".target" }),
+      makeRule({ id: "overlap", action: "to-csv", matcher: ".target table" }),
+    ]);
+
+    expect(result.tables.map((table) => table.csv)).toEqual(["Lorem", "Ipsum"]);
+    expect(new Set(result.tables.map((table) => table.name)).size).toBe(2);
+    expect(parseMainHtml(result.mainHtml).querySelectorAll("table")).toHaveLength(2);
+  });
+
+  it("does not lose later tables when an imported rule matches only their enclosing wrapper", () => {
+    const { preset, customRules } = importRules(
+      JSON.stringify({
+        version: 1,
+        preset: {
+          id: "md-only",
+          name: "Lorem wrapper rules",
+          description: "Synthetic imported rules",
+          rules: [makeRule({ action: "to-csv", matcher: ".target" })],
+        },
+        customRules: [],
+      }),
+    );
+
+    const result = applyRules(
+      '<div class="target"><table><tr><td>Lorem</td></tr></table>' +
+        "<table><tr><td>Ipsum</td></tr></table></div>",
+      [...preset.rules, ...customRules],
+    );
+
+    expect(result.tables.map((table) => table.csv)).toEqual(["Lorem", "Ipsum"]);
+    expect(parseMainHtml(result.mainHtml).querySelectorAll("table")).toHaveLength(2);
+  });
+
   it("does not export Confluence attachments macro tables as CSV", () => {
     const html = `
       <h1>Other blocks</h1>
@@ -263,164 +294,182 @@ describe("applyRules", () => {
     ]);
   });
 
-  it("tables-only preset removes real tables after CSV extraction", () => {
+  it("extracts tables-only CSV additively and leaves package filtering to the producer", () => {
     const html = `
-      <h1>Table Page</h1>
-      <p>Intro text</p>
+      <h1>Lorem tables</h1>
+      <p>Ipsum body</p>
       <table class="confluenceTable">
-        <tr><th>Columnt 1</th><th>Columnt 2</th><th>Columnt 3</th></tr>
-        <tr><td>1</td><td>2</td><td>3</td></tr>
+        <tr><th>Lorem</th><th>Ipsum</th></tr>
+        <tr><td>1</td><td>2</td></tr>
       </table>
     `;
 
-    const result = applyRules(html, TABLES_ONLY_PRESET.rules);
+    const result = applyRules(html, getExportTemplate("tables-only").rules);
+    const doc = parseMainHtml(result.mainHtml);
 
-    expect(result.tables).toHaveLength(1);
-    expect(result.tables[0].csv).toBe("Columnt 1,Columnt 2,Columnt 3\n1,2,3");
-    expect(parseMainHtml(result.mainHtml).querySelector("table")).toBeNull();
-  });
-});
-
-describe("presets", () => {
-  it("defines GENERIC_PRESET with no rules", () => {
-    expect(GENERIC_PRESET).toMatchObject({
-      id: "generic",
-      rules: [],
-    });
-  });
-
-  it("defines ALL_TABLES_CSV_PRESET with one CSV selector rule", () => {
-    expect(ALL_TABLES_CSV_PRESET.rules).toEqual([
-      {
-        id: "all-tables-csv",
-        name: "Все таблицы → +CSV",
-        type: "selector",
-        matcher: "table.confluenceTable, div.table-wrap > table",
-        action: "to-csv",
-        enabled: true,
-      },
-    ]);
-  });
-
-  it("contains all built-in presets in PRESETS", () => {
-    expect(PRESETS).toEqual([MD_ATTACHMENTS_PRESET, MD_ONLY_PRESET, TABLES_ONLY_PRESET]);
-    expect(DEFAULT_PRESET_ID).toBe("md-attachments");
-  });
-
-  it("returns matching presets by id and maps legacy ids to current presets", () => {
-    expect(getPreset("md-attachments")).toBe(MD_ATTACHMENTS_PRESET);
-    expect(getPreset("md-only")).toBe(MD_ONLY_PRESET);
-    expect(getPreset("tables-only")).toBe(TABLES_ONLY_PRESET);
-    expect(getPreset("generic")).toBe(MD_ONLY_PRESET);
-    expect(getPreset("all-csv")).toBe(MD_ATTACHMENTS_PRESET);
-    expect(getPreset("full-page")).toBe(MD_ATTACHMENTS_PRESET);
-    expect(getPreset("api-doc")).toBe(MD_ATTACHMENTS_PRESET);
-    expect(getPreset("unknown-preset")).toBe(MD_ATTACHMENTS_PRESET);
-  });
-
-  it("keeps legacy preset constants importable for old rule export files", () => {
-    expect(GENERIC_PRESET.id).toBe("generic");
-    expect(ALL_TABLES_CSV_PRESET.id).toBe("all-csv");
-    expect(FULL_PAGE_PRESET.id).toBe("full-page");
-    expect(API_DOC_PRESET.id).toBe("api-doc");
+    expect(result.tables.map((table) => table.csv)).toEqual(["Lorem,Ipsum\n1,2"]);
+    expect(doc.querySelector("table")?.textContent).toContain("Lorem");
+    expect(doc.querySelector("p")?.textContent).toBe("Ipsum body");
   });
 });
 
 describe("import/export", () => {
-  it("roundtrips exported preset and custom rules", () => {
-    const customRules = [
-      makeRule({
-        id: "custom-skip-footer",
-        name: "Custom skip footer",
-        matcher: ".footer",
-        action: "skip",
-        options: { reason: "noise", priority: 1, userDefined: true },
-      }),
-    ];
-
-    const json = exportRules(FULL_PAGE_PRESET, customRules);
-
-    expect(JSON.parse(json)).toMatchObject({ version: 1 });
-    expect(importRules(json)).toEqual({ preset: FULL_PAGE_PRESET, customRules });
-  });
-
   it("throws for invalid JSON", () => {
     expect(() => importRules("{")).toThrow();
   });
 
-  it("throws when version is missing", () => {
-    const json = JSON.stringify({ preset: GENERIC_PRESET, customRules: [] });
+  it("imports the existing versionless Options payload without losing base rules or their options", () => {
+    const baseRule = makeRule({
+      id: "lorem-legacy-base",
+      action: "to-csv",
+      matcher: "table.selected",
+      options: { removeAfterCsv: false, columnLimit: 3 },
+    });
+    const customRule = makeRule({
+      id: "ipsum-legacy-custom",
+      action: "skip",
+      matcher: ".private",
+      options: { retained: true },
+    });
+    const payload = {
+      preset: {
+        id: "generic",
+        name: "Lorem original base",
+        description: "Ipsum original description",
+        rules: [baseRule],
+      },
+      customRules: [customRule],
+    };
+
+    const imported = importRules(JSON.stringify(payload));
+    const upgraded = JSON.parse(exportRules(imported.preset, imported.customRules));
+    const reimported = importRules(JSON.stringify(upgraded));
+    const result = applyRules(
+      '<p>Lorem public body</p><aside class="private">Private</aside>' +
+        '<table class="selected"><tr><td>Ipsum</td></tr></table>' +
+        "<table><tr><td>Not selected</td></tr></table>",
+      [...reimported.preset.rules, ...reimported.customRules],
+    );
+
+    expect(upgraded).toEqual({
+      ...payload,
+      version: 1,
+      preset: { ...payload.preset, id: "md-only" },
+    });
+    expect(result.tables.map((table) => table.csv)).toEqual(["Ipsum"]);
+    const doc = parseMainHtml(result.mainHtml);
+    expect(doc.querySelectorAll("table")).toHaveLength(2);
+    expect(doc.querySelector(".private")).toBeNull();
+    expect(doc.querySelector("p")?.textContent).toBe("Lorem public body");
+  });
+
+  it.each([0, 2, "1", null])("rejects an explicit unsupported rules version %j", (version) => {
+    const json = JSON.stringify({
+      version,
+      preset: { id: "md-only", name: "Lorem", description: "Ipsum", rules: [] },
+      customRules: [],
+    });
 
     expect(() => importRules(json)).toThrow();
   });
-});
 
-describe("new presets", () => {
-  it("defines FULL_PAGE_PRESET with expected id, name, and rules", () => {
-    expect(FULL_PAGE_PRESET).toMatchObject({
-      id: "full-page",
-      name: expect.any(String),
+  it.each([
+    ["generic", "md-only"],
+    ["all-csv", "md-attachments"],
+    ["full-page", "md-attachments"],
+    ["api-doc", "md-attachments"],
+    ["unknown-preset", "md-attachments"],
+  ])("normalizes imported %s output policy without replacing its real rules", (id, presetId) => {
+    const baseRule = makeRule({
+      id: "lorem-base",
+      matcher: "table.base",
+      action: "to-csv",
+      options: { delimiter: ";", columnLimit: 4, removeAfterCsv: false },
     });
-    expect(FULL_PAGE_PRESET.rules).toEqual([
-      {
-        id: "navigation-chrome-skip",
-        name: "Навигационный chrome → пропустить",
-        type: "selector",
-        matcher: ".page-metadata, #breadcrumb-section",
-        action: "skip",
-        enabled: true,
+    const customRule = makeRule({
+      id: "ipsum-custom",
+      matcher: ".private",
+      action: "skip",
+      options: { retained: true },
+    });
+    const imported = importRules(
+      JSON.stringify({
+        version: 1,
+        preset: { id, name: "Lorem rules", description: "Ipsum payload", rules: [baseRule] },
+        customRules: [customRule],
+      }),
+    );
+    const result = applyRules(
+      '<p>Lorem body</p><aside class="private">Private</aside>' +
+        '<table class="base"><tr><td>Ipsum</td></tr></table>' +
+        "<table><tr><td>Not selected</td></tr></table>",
+      [...imported.preset.rules, ...imported.customRules],
+    );
+
+    expect(imported).toEqual({
+      preset: {
+        id: presetId,
+        name: "Lorem rules",
+        description: "Ipsum payload",
+        rules: [baseRule],
       },
-    ]);
+      customRules: [customRule],
+    });
+    expect(result.tables.map((table) => table.csv)).toEqual(["Ipsum"]);
+    const doc = parseMainHtml(result.mainHtml);
+    expect(doc.querySelectorAll("table")).toHaveLength(2);
+    expect(doc.querySelector(".private")).toBeNull();
   });
 
-  it("defines TABLES_ONLY_PRESET with expected id, name, and rules", () => {
-    expect(TABLES_ONLY_PRESET).toMatchObject({
+  it("roundtrips the actual base and custom payload through version 1 without hidden template rules", () => {
+    const preset = {
       id: "tables-only",
-      name: expect.any(String),
-    });
-    expect(TABLES_ONLY_PRESET.rules).toEqual([
-      {
-        id: "tables-only-all-csv",
-        name: "Все таблицы → +CSV",
-        type: "selector",
-        matcher: "table.confluenceTable, div.table-wrap > table, table",
-        action: "to-csv",
-        enabled: true,
-        options: { removeAfterCsv: true },
-      },
-      {
-        id: "tables-only-content-skip",
-        name: "Нетабличный контент → пропустить",
-        type: "selector",
-        matcher: ".page-metadata, #breadcrumb-section, p, ul, ol, pre, blockquote",
-        action: "skip",
-        enabled: true,
-      },
-    ]);
+      name: "Lorem selected tables",
+      description: "Ipsum selection",
+      rules: [makeRule({ id: "base", matcher: "table.selected", action: "to-csv" })],
+    };
+    const customRules = [
+      makeRule({ id: "overlap", matcher: "table.selected", action: "to-csv" }),
+      makeRule({ id: "extra", matcher: "table.extra", action: "to-csv" }),
+      makeRule({ id: "private", matcher: ".private", action: "skip" }),
+    ];
+
+    const json = exportRules(preset, customRules);
+    const imported = importRules(json);
+    const result = applyRules(
+      '<p>Lorem public body</p><aside class="private">Private</aside>' +
+        '<table class="selected"><tr><td>Lorem</td></tr></table>' +
+        '<table class="extra"><tr><td>Ipsum</td></tr></table>' +
+        "<table><tr><td>Not selected</td></tr></table>",
+      [...imported.preset.rules, ...imported.customRules],
+    );
+
+    expect(JSON.parse(json)).toEqual({ version: 1, preset, customRules });
+    expect(imported).toEqual({ preset, customRules });
+    expect(result.tables.map((table) => table.csv)).toEqual(["Lorem", "Ipsum"]);
+    const doc = parseMainHtml(result.mainHtml);
+    expect(doc.querySelectorAll("table")).toHaveLength(3);
+    expect(doc.querySelector(".private")).toBeNull();
+    expect(doc.querySelector("p")?.textContent).toBe("Lorem public body");
   });
 
-  it("defines API_DOC_PRESET with expected id, name, and rules", () => {
-    expect(API_DOC_PRESET).toMatchObject({
-      id: "api-doc",
-      name: expect.any(String),
-    });
-    expect(API_DOC_PRESET.rules).toEqual([
-      {
-        id: "api-endpoint-tables-csv",
-        name: "Таблицы endpoint → +CSV",
-        type: "selector",
-        matcher: "table.confluenceTable, div.table-wrap > table, table.api, table.endpoints",
-        action: "to-csv",
-        enabled: true,
-      },
-      {
-        id: "api-code-blocks-keep-html",
-        name: "Блоки кода → сохранить HTML",
-        type: "selector",
-        matcher: "pre, code, .code, .syntaxhighlighter, .codeContent",
-        action: "keep-html",
-        enabled: true,
-      },
+  it("preserves explicit legacy destructive rule options instead of silently making filtered exports editable", () => {
+    const imported = importRules(
+      exportRules({ id: "md-only", name: "Lorem", description: "Ipsum", rules: [] }, [
+        makeRule({
+          action: "to-csv",
+          matcher: "table",
+          options: { removeAfterCsv: true },
+        }),
+      ]),
+    );
+    const result = applyRules("<p>Lorem body</p><table><tr><td>Ipsum</td></tr></table>", [
+      ...imported.preset.rules,
+      ...imported.customRules,
     ]);
+
+    expect(result.tables.map((table) => table.csv)).toEqual(["Ipsum"]);
+    expect(parseMainHtml(result.mainHtml).querySelector("table")).toBeNull();
+    expect(parseMainHtml(result.mainHtml).querySelector("p")?.textContent).toBe("Lorem body");
   });
 });

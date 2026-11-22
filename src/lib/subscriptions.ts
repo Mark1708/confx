@@ -32,6 +32,7 @@ export interface Subscription {
   id: string;
   scope: SubscriptionScope;
   host: string;
+  sourceBaseVersion?: 1;
   rootId: string;
   rootTitle: string;
   spaceKey?: string;
@@ -78,6 +79,27 @@ async function load(): Promise<StoredShape> {
 
 async function save(state: StoredShape): Promise<void> {
   await storage.local.set({ [STORAGE_KEY]: state });
+}
+
+export async function migrateSubscriptionSources(
+  resolveHost: (subscription: Subscription) => string,
+): Promise<Subscription[]> {
+  const state = await load();
+  const ids = new Set<string>();
+  let changed = false;
+  const subscriptions = state.subscriptions.map((sub) => {
+    const host = resolveHost(sub);
+    const id = makeSubscriptionId(host, sub.rootId, sub.scope);
+    if (ids.has(id)) {
+      throw new Error("Subscription source collision. Existing baselines were not changed.");
+    }
+    ids.add(id);
+    if (host === sub.host && id === sub.id && sub.sourceBaseVersion === 1) return sub;
+    changed = true;
+    return { ...sub, host, id, sourceBaseVersion: 1 as const };
+  });
+  if (changed) await save({ ...state, subscriptions });
+  return [...subscriptions].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 export async function listSubscriptions(): Promise<Subscription[]> {

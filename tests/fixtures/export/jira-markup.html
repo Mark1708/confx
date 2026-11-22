@@ -1,14 +1,17 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Lorem literal wiki markup</title>
+  </head>
   <body>
-    <article>
-      <div id="description-val" class="field-ignore-highlight">
-        <p>
-          This is regarding the [KIP-866|https://cwiki.apache.org/confluence/display/KAFKA/KIP-866+ZooKeeper+to+KRaft+Migration]
-          migration note with {*}bold{*} wiki markup.
-        </p>
-        <p>{code}console.log('offline');{code}</p>
-      </div>
-    </article>
+    <section id="description-val">
+      <p>
+        Lorem [LOR-12|https://jira.example/browse/LOR-12] and {*}ipsum{*} remain literal rendered
+        text.
+      </p>
+      <p>{code:sql}SELECT lorem FROM ipsum;{code}</p>
+      <p>Lorem <strong>dolor</strong> is ordinary HTML formatting.</p>
+    </section>
   </body>
 </html>

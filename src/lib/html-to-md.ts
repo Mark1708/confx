@@ -1,50 +1,59 @@
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
+import type { LayoutExtractionOutcome } from "@/types";
+import { extractConfluenceLayout, formatConfluenceLayoutMarkdown } from "./confluence-layout";
+import {
+  encodeMarkdownDestination,
+  encodeMarkdownLabel,
+  escapeMarkdownText,
+} from "./markdown-literals";
 
 export interface HtmlToMdOptions {
   imageReplacer?: (img: HTMLImageElement) => string;
+  linkRenderer?: (href: string, text: string) => string | undefined;
   linkRewriter?: (href: string, text: string) => string;
   spoilersAsDetails?: boolean;
   dropSelectors?: string[];
+  storageHtml?: string;
 }
 
-function preprocessConfluenceNoise(html: string): string {
-  const doc = new DOMParser().parseFromString(html, "text/html");
+export interface HtmlToMarkdownResult {
+  markdown: string;
+  layout: LayoutExtractionOutcome;
+}
+function preprocessConfluenceNoise(html: string | HTMLElement): HTMLElement {
+  const root =
+    typeof html === "string" ? new DOMParser().parseFromString(html, "text/html").body : html;
 
-  doc.querySelectorAll("p").forEach((p) => {
-    if (p.querySelector("img, video, audio, iframe, embed")) return;
+  root
+    .querySelectorAll(
+      ".enh-settings.hidden, .enh-settings[hidden], .enh-settings[aria-hidden='true'], " +
+        ".synchrony-container, .synchrony-exclude",
+    )
+    .forEach((el) => el.remove());
+
+  root.querySelectorAll("p").forEach((p) => {
+    if (p.closest("pre") || p.querySelector("img, video, audio, iframe, embed")) return;
     const text = (p.textContent ?? "").replace(/[\s ]/g, "");
     if (text === "") p.remove();
   });
 
-  doc.querySelectorAll("p, div, span").forEach((el) => {
-    if (el.children.length > 0) return;
-    const text = (el.textContent ?? "").trim();
-    if (text.length < 6 || text.length > 4000) return;
-    if (!(text.startsWith("{") || text.startsWith("["))) return;
-    try {
-      JSON.parse(text);
-      el.remove();
-    } catch {
-      /* not a config object, keep */
-    }
-  });
-
-  doc.querySelectorAll("p.auto-cursor-target, .auto-cursor-target").forEach((el) => {
+  root.querySelectorAll(".auto-cursor-target").forEach((el) => {
     if (el.textContent?.trim() === "") el.remove();
   });
 
-  doc.querySelectorAll(".confluence-anchor-link, .heading-anchor-wrapper").forEach((el) => {
+  root.querySelectorAll(".confluence-anchor-link, .heading-anchor-wrapper").forEach((el) => {
     el.remove();
   });
 
-  doc.querySelectorAll("h1,h2,h3,h4,h5,h6").forEach((h) => {
-    h.querySelectorAll("a.confluence-anchor-link").forEach((a) => {
-      a.remove();
-    });
+  root.querySelectorAll("h1,h2,h3,h4,h5,h6").forEach((heading) => {
+    const preview = heading.getAttribute("data-numhead-preview");
+    const alreadyNumbered = /^\s*\d+(?:\.\d+)*[.)]?(?=\s|$)/.test(heading.textContent ?? "");
+    if (preview && !alreadyNumbered) heading.prepend(root.ownerDocument.createTextNode(preview));
   });
 
-  return doc.body.innerHTML;
+  // Passing the DOM avoids parsing PRE a second time and swallowing another opening newline.
+  return root;
 }
 
 function cellToMd(el: Element, cellTd: TurndownService): string {
@@ -59,11 +68,10 @@ function cellToMd(el: Element, cellTd: TurndownService): string {
       n.remove();
     });
 
-  const md = cellTd.turndown(clone.innerHTML).trim();
+  const md = cellTd.turndown(clone as HTMLElement).trim();
   return md
     .replace(/\|/g, "\\|")
     .replace(/\r?\n+/g, " <br> ")
-    .replace(/\s{2,}/g, " ")
     .trim();
 }
 
@@ -137,66 +145,144 @@ function isFabricCodeBlock(node: Node): boolean {
   return !!parent && parent.hasAttribute("data-ds--code--code-block");
 }
 
-function getFabricCodeLanguage(codeEl: HTMLElement): string {
-  const codeLang = codeEl.getAttribute("data-code-lang") || "";
-  if (codeLang) return codeLang;
+const CODE_LANGUAGE_CLASSES: Readonly<Record<string, true>> = {
+  actionscript: true,
+  applescript: true,
+  bash: true,
+  c: true,
+  "c#": true,
+  "c++": true,
+  clojure: true,
+  cpp: true,
+  csharp: true,
+  css: true,
+  delphi: true,
+  diff: true,
+  erl: true,
+  erlang: true,
+  go: true,
+  groovy: true,
+  html: true,
+  java: true,
+  javascript: true,
+  js: true,
+  jscript: true,
+  json: true,
+  kotlin: true,
+  lua: true,
+  markdown: true,
+  md: true,
+  none: true,
+  perl: true,
+  php: true,
+  plain: true,
+  plaintext: true,
+  powershell: true,
+  properties: true,
+  py: true,
+  python: true,
+  r: true,
+  rb: true,
+  ruby: true,
+  rust: true,
+  sass: true,
+  scala: true,
+  scss: true,
+  sh: true,
+  shell: true,
+  sql: true,
+  text: true,
+  ts: true,
+  typescript: true,
+  vb: true,
+  xml: true,
+  yaml: true,
+  yml: true,
+};
 
-  const wrapperLang = codeEl.parentElement?.getAttribute("data-code-lang") || "";
-  if (wrapperLang) return wrapperLang;
-
-  const codeClass = codeEl.getAttribute("class") || "";
-  const langMatch = codeClass.match(/language-(\S+)/);
-  return langMatch?.[1] ?? "";
+function getCodeLanguage(...nodes: (Element | null)[]): string {
+  for (const node of nodes) {
+    const language = node?.getAttribute("data-code-lang")?.trim();
+    if (language && /^[\w#+.-]+$/.test(language)) return language.toLowerCase();
+  }
+  for (const node of nodes) {
+    const language = node?.getAttribute("class")?.match(/(?:^|\s)language-([\w#+.-]+)(?=\s|$)/i);
+    if (language) return language[1].toLowerCase();
+  }
+  for (const node of nodes) {
+    const language =
+      node
+        ?.getAttribute("data-syntaxhighlighter-params")
+        ?.match(/(?:^|[;\s])brush:\s*([\w#+.-]+)/i) ??
+      node?.getAttribute("class")?.match(/(?:^|[;\s])brush:\s*([\w#+.-]+)/i);
+    if (language) return language[1].toLowerCase();
+  }
+  for (const node of nodes) {
+    const language = node
+      ?.getAttribute("class")
+      ?.split(/\s+/)
+      .find((token) => Object.hasOwn(CODE_LANGUAGE_CLASSES, token.toLowerCase()));
+    if (language) return language.toLowerCase();
+  }
+  return "";
 }
 
-function getSyntaxHighlighterLanguage(el: Element): string {
-  const params = el.getAttribute("data-syntaxhighlighter-params") || el.getAttribute("class") || "";
-  const brushMatch = params.match(/brush:\s*([\w-]+)/i);
-  if (brushMatch) return brushMatch[1].toLowerCase();
+function getCodeText(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE || node.nodeType === Node.CDATA_SECTION_NODE) {
+    return node.nodeValue ?? "";
+  }
+  if (node.nodeName === "BR") return "\n";
+  let text = "";
+  for (const child of node.childNodes) text += getCodeText(child);
+  return text;
+}
 
-  const languageMatch = params.match(/language-([\w-]+)/i);
-  if (languageMatch) return languageMatch[1].toLowerCase();
+function isParagraphCodeBlock(node: Node): boolean {
+  return (
+    node.nodeName === "P" &&
+    node instanceof HTMLElement &&
+    node.classList.contains("code-fence") &&
+    node.querySelector("code") !== null
+  );
+}
 
-  const className = el.getAttribute("class") || "";
-  const languageClass = className
-    .split(/\s+/)
-    .find((token) => token && !["code", "panel", "pdl", "syntaxhighlighter-pre"].includes(token));
-  return languageClass?.toLowerCase() ?? "";
+function escapeCodeHtml(code: string): string {
+  // GFM inline parsers can still interpret Markdown inside raw table-cell HTML.
+  return escapeHtmlText(code).replace(/[`*_[\]\\~|@.:]/g, (char) => `&#${char.charCodeAt(0)};`);
+}
+
+function inlineCode(code: string): string {
+  if (!code) return "";
+  if (code.includes("\n")) {
+    return `<code>${escapeCodeHtml(code).replace(/\n/g, "<br>")}</code>`;
+  }
+  let length = 1;
+  for (const run of code.matchAll(/`+/g)) length = Math.max(length, run[0].length + 1);
+  const delimiter = "`".repeat(length);
+  const pad =
+    code.startsWith("`") ||
+    code.endsWith("`") ||
+    (code.startsWith(" ") && code.endsWith(" ") && /[^ ]/.test(code))
+      ? " "
+      : "";
+  return `${delimiter}${pad}${code}${pad}${delimiter}`;
 }
 
 function fencedCode(language: string, code: string): string {
-  return `\n\n\`\`\`${language}\n${code.replace(/\n+$/g, "")}\n\`\`\`\n\n`;
-}
-
-function convertJiraWikiMarkup(markdown: string): string {
-  const normalizedWikiMarkup = markdown
-    .replace(/\\\[(?=[^\]\n]*\|)/g, "[")
-    .replace(/\\\{\\\*\\\}/g, "{*}")
-    .replace(/\{\\\*\}/g, "{*}")
-    .replace(/\\\{code/g, "{code")
-    .replace(/\\\{noformat/g, "{noformat")
-    .replace(/\\\}/g, "}");
-
-  return normalizedWikiMarkup
-    .replace(
-      /\\?\{code(?::([\w-]+))?\\?\}\n?([\s\S]*?)\\?\{code\\?\}/g,
-      (_match, language, code) => {
-        return fencedCode(language || "", String(code).trim());
-      },
-    )
-    .replace(/\\?\{noformat\\?\}\n?([\s\S]*?)\\?\{noformat\\?\}/g, (_match, code) => {
-      return fencedCode("", String(code).trim());
-    })
-    .replace(/\[([^\]|\n]+)\|((?:https?:\/\/|\/)[^\]\\\s]+)\\?\]/g, (_match, text, url) => {
-      return `[${String(text)}](${String(url).replace(/\\([()])/g, "$1")})`;
-    })
-    .replace(/\{\*\}([\s\S]*?)\{\*\}/g, "**$1**");
+  let length = 3;
+  for (const run of code.matchAll(/`+/g)) length = Math.max(length, run[0].length + 1);
+  const fence = "`".repeat(length);
+  return `\n\n${fence}${language}\n${code}\n${fence}\n\n`;
 }
 
 export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
   const imageReplacer = opts.imageReplacer;
   const linkRewriter = opts.linkRewriter;
+  const linkRenderer = opts.linkRenderer;
   const dropSelectors = opts.dropSelectors;
+  const renderLink = (href: string, text: string): string =>
+    linkRenderer?.(href, text) ??
+    `[${text}](${encodeMarkdownDestination(linkRewriter?.(href, text) ?? href)})`;
   const td = new TurndownService({
     headingStyle: "atx",
     codeBlockStyle: "fenced",
@@ -219,37 +305,49 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
     linkStyle: "inlined",
   });
   cellTd.remove(["script", "style", "button"]);
+  for (const service of [td, cellTd]) {
+    const escapeMarkdown = service.escape.bind(service);
+    // Reading projection only: leave persisted editable Markdown's v1/v2 baselines unchanged.
+    service.escape = (text) => escapeMarkdownText(text, escapeMarkdown).replace(/@/g, "&#64;");
+    service.options.preformattedCode = true;
+  }
+
   if (imageReplacer) {
     cellTd.addRule("cell-img", {
       filter: "img",
       replacement: (_c, node) => imageReplacer(node as HTMLImageElement),
     });
   }
-  if (linkRewriter) {
+  if (linkRenderer || linkRewriter) {
     cellTd.addRule("cell-link", {
       filter: "a",
       replacement: (content, node) => {
         const a = node as HTMLAnchorElement;
         const href = a.getAttribute("href") || "";
         const text = (content || a.textContent || "").trim();
-        return href ? `[${text}](${linkRewriter(href, text)})` : text;
+        return href ? renderLink(href, text) : text;
       },
     });
   }
 
   const addInlineConfluenceRules = (service: TurndownService): void => {
+    service.addRule("literal-inline-code", {
+      filter: "code",
+      replacement: (_content, node) => inlineCode(getCodeText(node)),
+    });
+
     service.addRule("jira-issue", {
       filter: (node) =>
         node.nodeName === "SPAN" && (node as HTMLElement).classList?.contains("jira-issue"),
       replacement: (_content, node) => {
         const el = node as HTMLElement;
-        const key = el.getAttribute("data-jira-key") || "";
+        const key = encodeMarkdownLabel(el.getAttribute("data-jira-key") || "");
         const link = el.querySelector("a.jira-issue-key");
         const href = link?.getAttribute("href") || "";
         const summary = el.querySelector(".summary")?.textContent?.trim() || "";
         const status = el.querySelector(".aui-lozenge")?.textContent?.trim() || "";
         const isResolved = el.classList.contains("resolved");
-        const issueRef = href ? `[${key}](${href})` : key;
+        const issueRef = href ? `[${key}](${encodeMarkdownDestination(href)})` : key;
         const parts = [issueRef];
         if (summary) parts.push(`- ${summary}`);
         if (status) parts.push(`[${status}]`);
@@ -272,6 +370,14 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
   };
 
   addInlineConfluenceRules(cellTd);
+  cellTd.addRule("cell-code-block", {
+    filter: (node) => node.nodeName === "PRE" || isParagraphCodeBlock(node),
+    replacement: (_content, node) => {
+      // GFM table cells cannot contain fenced blocks or physical source newlines.
+      const code = escapeCodeHtml(getCodeText(node)).replace(/\n/g, "&#10;");
+      return `<pre><code>${code}</code></pre>`;
+    },
+  });
 
   td.remove(["script", "style", "button"]);
 
@@ -321,13 +427,13 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
     replacement: (_content, node) => {
       const el = node as HTMLElement;
       const title = el.querySelector(".expand-control")?.textContent?.trim() ?? "Подробнее";
-      const body = el.querySelector(".expand-content");
+      const body = el.querySelector<HTMLElement>(".expand-content");
       if (!body) return "";
-      const inner = td.turndown(body.innerHTML).trim();
+      const inner = td.turndown(body).trim();
       if (opts.spoilersAsDetails !== false) {
-        return `\n\n<details>\n<summary>${escapeHtml(title)}</summary>\n\n${inner}\n\n</details>\n\n`;
+        return `\n\n<details>\n<summary>${escapeHtmlText(title)}</summary>\n\n${inner}\n\n</details>\n\n`;
       }
-      return `\n\n### ${title}\n\n${inner}\n\n`;
+      return `\n\n### ${td.escape(title)}\n\n${inner}\n\n`;
     },
   });
 
@@ -337,12 +443,12 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
       const img = node as HTMLImageElement;
       if (imageReplacer) return imageReplacer(img);
       const src = img.getAttribute("data-image-src") || img.getAttribute("src") || "";
-      const alt = img.getAttribute("alt") || "";
-      return src ? `![${alt}](${src})` : "";
+      const alt = encodeMarkdownLabel(img.getAttribute("alt") || "");
+      return src ? `![${alt}](${encodeMarkdownDestination(src)})` : "";
     },
   });
 
-  if (linkRewriter) {
+  if (linkRenderer || linkRewriter) {
     td.addRule("rewrite-link", {
       filter: "a",
       replacement: (content, node) => {
@@ -350,7 +456,7 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
         const href = a.getAttribute("href") || "";
         if (!href) return content;
         const text = (content || a.textContent || "").trim();
-        return `[${text}](${linkRewriter(href, text)})`;
+        return renderLink(href, text);
       },
     });
   }
@@ -367,23 +473,25 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
     filter: isFabricCodeBlock,
     replacement: (_content, node) => {
       const codeEl = node as HTMLElement;
-      const lang = getFabricCodeLanguage(codeEl);
-      const code = codeEl.textContent || "";
-      return fencedCode(lang, code);
+      const lang = getCodeLanguage(codeEl, codeEl.parentElement);
+      return fencedCode(lang, getCodeText(codeEl));
+    },
+  });
+
+  td.addRule("paragraph-code-block", {
+    filter: isParagraphCodeBlock,
+    replacement: (_content, node) => {
+      const el = node as HTMLElement;
+      return fencedCode(getCodeLanguage(...el.querySelectorAll("code"), el), getCodeText(el));
     },
   });
 
   td.addRule("plain-pre-code-block", {
-    filter: (node) => {
-      if (node.nodeName !== "PRE") return false;
-      const el = node as HTMLElement;
-      return !el.closest(".code.panel");
-    },
+    filter: "pre",
     replacement: (_content, node) => {
       const pre = node as HTMLElement;
-      const codeEl = pre.querySelector("code") ?? pre;
-      const lang = getSyntaxHighlighterLanguage(pre) || getSyntaxHighlighterLanguage(codeEl);
-      return fencedCode(lang, codeEl.textContent || "");
+      const lang = getCodeLanguage(...pre.querySelectorAll("code"), pre);
+      return fencedCode(lang, getCodeText(pre));
     },
   });
 
@@ -400,18 +508,16 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
       (node as HTMLElement).classList?.contains("panel"),
     replacement: (_content, node) => {
       const el = node as HTMLElement;
-      const codeEl = el.querySelector("code");
-      const preEl = el.querySelector("pre");
-      if (!codeEl && !preEl) return "";
-
-      let lang = codeEl ? getSyntaxHighlighterLanguage(codeEl) : "";
-
-      if (!lang && preEl) {
-        lang = getSyntaxHighlighterLanguage(preEl);
+      const preElements = Array.from(el.querySelectorAll("pre"));
+      if (preElements.length) {
+        return preElements
+          .map((pre) =>
+            fencedCode(getCodeLanguage(...pre.querySelectorAll("code"), pre, el), getCodeText(pre)),
+          )
+          .join("\n\n");
       }
-
-      const code = (codeEl ?? preEl)?.textContent || "";
-      return fencedCode(lang, code);
+      const codeEl = el.querySelector("code");
+      return codeEl ? fencedCode(getCodeLanguage(codeEl, el), getCodeText(codeEl)) : "";
     },
   });
 
@@ -463,8 +569,8 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
     },
     replacement: (content, node) => {
       const el = node as HTMLElement;
-      const body = el.querySelector("ac\\:rich-text-body");
-      const inner = body ? td.turndown(body.innerHTML).trim() : content.trim();
+      const body = el.querySelector<HTMLElement>("ac\\:rich-text-body");
+      const inner = body ? td.turndown(body).trim() : content.trim();
       if (!inner) return "";
       const quoted = inner
         .split("\n")
@@ -493,8 +599,10 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
             image.getAttribute("data-image-src") ||
             image.getAttribute("ac:src") ||
             filename;
-          const alt = image.getAttribute("alt") || image.getAttribute("ac:alt") || filename;
-          return src ? `![${alt}](${src})` : "";
+          const alt = encodeMarkdownLabel(
+            image.getAttribute("alt") || image.getAttribute("ac:alt") || filename || "",
+          );
+          return src ? `![${alt}](${encodeMarkdownDestination(src)})` : "";
         })
         .filter((line) => line.length > 0);
       return lines.length ? `\n\n${lines.join("\n")}\n\n` : "";
@@ -524,7 +632,9 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
         el.getAttribute("ri:page-id") || el.getAttribute("page-id") || el.getAttribute("id") || "";
       const spaceKey = el.getAttribute("ri:space-key") || el.getAttribute("space-key") || "";
       const target = pageId || (spaceKey ? `${spaceKey}:${title}` : title);
-      const link = target ? `[${title}](${target})` : title;
+      const link = target
+        ? `[${encodeMarkdownLabel(title)}](${encodeMarkdownDestination(target)})`
+        : encodeMarkdownLabel(title);
       const macro = el.closest("ac\\:structured-macro");
       const macroName = macro?.getAttribute("ac:name") || macro?.getAttribute("name") || "";
       return macroName.startsWith("page-properties") ? `\n${title}\n: ${link}\n` : link;
@@ -581,15 +691,39 @@ export function buildTurndown(opts: HtmlToMdOptions = {}): TurndownService {
   return td;
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+function escapeHtmlText(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/** Converts rendered HTML; wiki-looking source text is kept literal. */
 export function htmlToMarkdown(html: string, opts?: HtmlToMdOptions): string {
+  return convertHtmlToMarkdown(html, opts);
+}
+
+export function htmlToMarkdownWithLayout(
+  html: string,
+  opts: HtmlToMdOptions = {},
+): HtmlToMarkdownResult {
+  const layout = extractConfluenceLayout(html, opts.storageHtml);
+  if (layout.kind === "valid") {
+    return {
+      markdown: formatConfluenceLayoutMarkdown(layout.layout, (cell) =>
+        convertHtmlToMarkdown(cell, { ...opts, storageHtml: undefined }),
+      ),
+      layout: { status: "preserved", sections: layout.sections },
+    };
+  }
+
+  return {
+    markdown: convertHtmlToMarkdown(html, opts),
+    layout: {
+      status: layout.kind === "invalid" ? "flattened" : "none",
+      sections: layout.sections,
+    },
+  };
+}
+
+function convertHtmlToMarkdown(html: string | HTMLElement, opts?: HtmlToMdOptions): string {
   const cleaned = preprocessConfluenceNoise(html);
-  return convertJiraWikiMarkup(buildTurndown(opts).turndown(cleaned)).trim();
+  return buildTurndown(opts).turndown(cleaned).trim();
 }

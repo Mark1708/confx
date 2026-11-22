@@ -14,5 +14,35 @@
   "actionDefaultTitle": {
     "message": "ConfX",
     "description": "Browser toolbar action title"
+  },
+  "tabAccessUnsupportedTitle": {
+    "message": "Unsupported browser page"
+  },
+  "tabAccessUnsupportedDescription": {
+    "message": "ConfX can inspect only HTTP and HTTPS pages."
+  },
+  "tabAccessHostMissingTitle": {
+    "message": "Access required"
+  },
+  "tabAccessHostMissingDescription": {
+    "message": "Grant ConfX access to the current site and retry the page check."
+  },
+  "tabAccessGrant": {
+    "message": "Grant access and retry"
+  },
+  "tabAccessGrantDeclined": {
+    "message": "Access was not granted."
+  },
+  "tabAccessGrantFailed": {
+    "message": "Could not request access."
+  },
+  "tabAccessProbeFailedTitle": {
+    "message": "Could not inspect this page"
+  },
+  "tabAccessProbeFailedDescription": {
+    "message": "The browser rejected the page check for a non-permission reason."
+  },
+  "tabAccessRetry": {
+    "message": "Retry"
   }
 }

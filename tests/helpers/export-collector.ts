@@ -1,4 +1,5 @@
 import type {
+  ArchiveEntry,
   EmitEntry,
   ExportContext,
   ExportSummary,
@@ -6,6 +7,16 @@ import type {
   ProgressHandler,
 } from "@/lib/export/contracts";
 import { ZipEncoder, ZIP_MIME_TYPE } from "@/lib/export/zip-encoder";
+
+/** Archive bodies are `string | Blob`; jsdom and Node Blobs come from different realms in tests. */
+export function hasBlobBody(entry: ArchiveEntry): boolean {
+  return typeof entry.body !== "string";
+}
+
+/** Cross-realm Blob check (Node and jsdom both tag it), for values without a declared contract. */
+export function isBlobLike(value: unknown): boolean {
+  return Object.prototype.toString.call(value) === "[object Blob]";
+}
 
 type Producer = (
   prepared: PreparedExport,
@@ -23,17 +34,23 @@ export async function collectExport(
   const chunks: Uint8Array<ArrayBuffer>[] = [];
   let encoder: ZipEncoder | undefined;
   try {
-    const summary = await producer(prepared, {
-      signal,
-      onProgress,
-      onPackage(info) {
-        if (encoder) throw new Error("Producer announced its package more than once");
-        encoder = new ZipEncoder(info.rootName, async (chunk) => { chunks.push(chunk); });
+    const summary = await producer(
+      prepared,
+      {
+        signal,
+        onProgress,
+        onPackage(info) {
+          if (encoder) throw new Error("Producer announced its package more than once");
+          encoder = new ZipEncoder(info.rootName, async (chunk) => {
+            chunks.push(chunk);
+          });
+        },
       },
-    }, async (entry) => {
-      if (!encoder) throw new Error("Producer emitted before announcing its package");
-      await encoder.write(entry, signal);
-    });
+      async (entry) => {
+        if (!encoder) throw new Error("Producer emitted before announcing its package");
+        await encoder.write(entry, signal);
+      },
+    );
     if (!encoder) throw new Error("Producer did not announce its package");
     signal.throwIfAborted();
     await encoder.finish(signal);
@@ -52,7 +69,9 @@ export async function collectEntries(
   signal = new AbortController().signal,
 ): Promise<Blob> {
   const chunks: Uint8Array<ArrayBuffer>[] = [];
-  const encoder = new ZipEncoder(rootName, async (chunk) => { chunks.push(chunk); });
+  const encoder = new ZipEncoder(rootName, async (chunk) => {
+    chunks.push(chunk);
+  });
   try {
     await produce((entry) => encoder.write(entry, signal));
     signal.throwIfAborted();

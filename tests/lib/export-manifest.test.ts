@@ -12,6 +12,8 @@ import type {
   ExtractedPage,
 } from "../../src/types";
 
+import { isBlobLike } from "../helpers/export-collector";
+
 function makePage(overrides: Partial<ExtractedPage> = {}): ExtractedPage {
   return {
     meta: {
@@ -142,7 +144,7 @@ describe("buildConfluenceExportManifest", () => {
       plantuml_diagrams: 1,
     });
     expect(Object.keys(inventory).sort()).toEqual(["counts", "failures", "page"]);
-    expect(Object.values(inventory.page).some((value) => value instanceof Blob)).toBe(false);
+    expect(Object.values(inventory.page).some((value) => isBlobLike(value))).toBe(false);
     expect(inventory.page).not.toHaveProperty("markdown");
     expect(inventory.page).not.toHaveProperty("images");
     expect(inventory.page).not.toHaveProperty("meta");
